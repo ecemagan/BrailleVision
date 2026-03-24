@@ -21,6 +21,8 @@ class NemethTranslator:
     FRACTION_CLOSE = "⠼"
     RADICAL_OPEN = "⠜"
     RADICAL_CLOSE = "⠻"
+    SUPERSCRIPT_INDICATOR = "⠘"
+    SUBSCRIPT_INDICATOR = "⠰"
 
     DIGIT_MAP = {
         "1": "⠁",
@@ -41,13 +43,13 @@ class NemethTranslator:
         "*": "⠈⠡",
         "/": "⠌",
         "=": "⠨⠅",
-        "^": "⠘",
     }
 
     FUNCTION_MAP = {
-        "sin": "⠎⠔",
+        "sin": "⠎⠊⠝",
         "cos": "⠉⠕⠎",
         "tan": "⠞⠁⠝",
+        "log": "⠇⠕⠛",
     }
 
     LETTER_MAP = {
@@ -102,6 +104,12 @@ class NemethTranslator:
             return f"{self.FRACTION_OPEN} {numerator} {self.FRACTION_LINE} {denominator} {self.FRACTION_CLOSE}"
 
         if isinstance(node, BinaryOpNode):
+            if node.operator == "^":
+                return self._translate_script(node.left, node.right, self.SUPERSCRIPT_INDICATOR)
+
+            if node.operator == "_":
+                return self._translate_script(node.left, node.right, self.SUBSCRIPT_INDICATOR)
+
             left = self.translate(node.left)
             operator = self._translate_operator(node.operator)
             right = self.translate(node.right)
@@ -138,7 +146,15 @@ class NemethTranslator:
         mapped = self.FUNCTION_MAP.get(function_name)
         if mapped is None:
             raise ValueError(f"Unsupported function: {function_name}")
-        return f"{mapped} {self.translate(argument)}"
+
+        translated_argument = self.translate(argument)
+        if isinstance(argument, GroupedNode):
+            return f"{mapped}{translated_argument}"
+        return f"{mapped} {translated_argument}"
+
+    def _translate_script(self, base: ExpressionNode, script: ExpressionNode, indicator: str) -> str:
+        """Translates Nemeth superscript or subscript notation."""
+        return f"{self.translate(base)} {indicator} {self.translate(script)}"
 
     @staticmethod
     def _wrap_grouping(content: str) -> str:
