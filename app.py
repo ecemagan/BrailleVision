@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sys
 from pathlib import Path
@@ -38,6 +39,14 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -108,6 +117,27 @@ async def process_image(image: UploadFile = File(...)):
             
     return JSONResponse(content={"results": results})
 
+def process_text_raw_with_gemini(text_input: str) -> list[str]:
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        prompt = f"""
+        Aşağıdaki metinden sadece matematiksel işlemleri/denklemleri çıkar. 
+        Sadece düz formatta metin olarak yaz (örn: sqrt(x) + 1/2 = 5). 
+        Markdown kullanma. Birden fazla denklem varsa her birini yeni bir satıra yaz.
+        Eğer metinde matematiksel bir ifade yoksa hiçbir şey yazma. Kesinlikle açıklama bırakma.
+        
+        Metin:
+        {text_input}
+        """
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if not text:
+            return []
+        return [line.strip() for line in text.split('\n') if line.strip()]
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        return [text_input]
+
 class TextInput(BaseModel):
     text: str
 
@@ -116,9 +146,12 @@ async def process_text(data: TextInput):
     if not data.text or not data.text.strip():
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
     
-    # Text is directly provided, no need for Gemini to extract.
-    # We can handle multiple lines if user enters multiple equations.
-    expressions = [line.strip() for line in data.text.split('\n') if line.strip()]
+    # Use Gemini to extract cleanly
+    expressions = process_text_raw_with_gemini(data.text)
+    
+    # Fallback if Gemini fails to extract or returns empty, try raw text lines
+    if not expressions:
+        expressions = [line.strip() for line in data.text.split('\n') if line.strip()]
     
     results = []
     for exp in expressions:
