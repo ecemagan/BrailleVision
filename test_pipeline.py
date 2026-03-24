@@ -135,6 +135,51 @@ class PipelineTest(unittest.TestCase):
         self.assertIn("⠷", explicit_nemeth)
         self.assertIn("⠾", explicit_nemeth)
 
+    def test_trigonometric_and_logarithmic_functions(self) -> None:
+        """Validates tokenization and translation for trigonometric and logarithmic functions."""
+        expression = "sin(x) + cos(y) + tan(z) + log(10)"
+        tokens = Lexer(expression).tokenize()
+        ast = Parser(tokens).parse()
+        nemeth = self.translator.translate(ast)
+
+        function_tokens = [token.value for token in tokens if token.token_type.name == "FUNCTION"]
+
+        self.assertEqual(["sin", "cos", "tan", "log"], function_tokens)
+        self.assertIn("⠎⠊⠝", nemeth)
+        self.assertNotIn("⠎⠔", nemeth)
+        self.assertIn("⠉⠕⠎", nemeth)
+        self.assertIn("⠞⠁⠝", nemeth)
+        self.assertIn("⠇⠕⠛", nemeth)
+        self.assertIn("⠎⠊⠝⠷", nemeth)
+        self.assertIn("⠉⠕⠎⠷", nemeth)
+        self.assertIn("⠞⠁⠝⠷", nemeth)
+        self.assertIn("⠇⠕⠛⠷", nemeth)
+
+    def test_complex_exponent_and_subscript(self) -> None:
+        """Validates complex exponent and subscript parsing with Nemeth script indicators."""
+        expression = "x_1 + e^(x+1)"
+        ast = Parser(Lexer(expression).tokenize()).parse()
+        nemeth = self.translator.translate(ast)
+
+        self.assertEqual("((x _ 1) + (e ^ (x + 1)))", str(ast))
+        self.assertIn("⠰", nemeth)
+        self.assertIn("⠘", nemeth)
+        self.assertIn("⠷", nemeth)
+        self.assertIn("⠾", nemeth)
+
+    def test_required_complex_pipeline_expression(self) -> None:
+        """Validates the required production expression with nested fraction inside square root."""
+        expression = "sin(x) + sqrt(1/2) = y"
+        ast = Parser(Lexer(expression).tokenize()).parse()
+        nemeth = self.translator.translate(ast)
+
+        self.assertEqual("((sin(x) + sqrt((1 / 2))) = y)", str(ast))
+        self.assertIn("⠎⠊⠝", nemeth)
+        self.assertIn("⠎⠊⠝⠷", nemeth)
+        self.assertIn("⠜", nemeth)
+        self.assertIn("⠹", nemeth)
+        self.assertIn("⠨⠅", nemeth)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -8,7 +8,7 @@ from .token_model import Token, TokenType
 class Lexer:
     """Lexical analyzer for mathematical expressions."""
 
-    FUNCTION_NAMES = frozenset({"sin", "cos", "tan", "sqrt"})
+    FUNCTION_NAMES = frozenset({"sin", "cos", "tan", "log", "sqrt"})
 
     def __init__(self, source: str | None) -> None:
         self.source = source or ""
@@ -51,7 +51,7 @@ class Lexer:
 
     def _read_identifier(self) -> Token:
         start = self.position
-        while not self._is_at_end() and (self._peek().isalnum() or self._peek() == "_"):
+        while not self._is_at_end() and self._peek().isalnum():
             self._advance()
 
         lexeme = self.source[start:self.position]
@@ -62,7 +62,7 @@ class Lexer:
 
     @staticmethod
     def _is_operator(character: str) -> bool:
-        return character in {"+", "-", "*", "/", "=", "^", "(", ")"}
+        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")"}
 
     def _peek(self) -> str:
         return self.source[self.position]

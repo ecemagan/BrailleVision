@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import os
@@ -17,6 +18,7 @@ from braillevision.parser import Parser
 
 
 OUTPUT_FILE = Path("output.txt")
+TARGET_EXPRESSION = "sin(x) + sqrt(1/2) = y"
 
 
 def configure_utf8_console() -> None:
@@ -48,8 +50,7 @@ def main() -> None:
     """Executes the end-to-end translation pipeline."""
     configure_utf8_console()
 
-    expression = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "sqrt(x) + 1/2 = 5"
-    source, token_text, ast_text, braille = run_pipeline(expression)
+    source, token_text, ast_text, braille = run_pipeline(TARGET_EXPRESSION)
 
     print(f"Input: {source}")
     print(f"Tokens: {token_text}")

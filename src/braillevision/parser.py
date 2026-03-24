@@ -69,10 +69,18 @@ class Parser:
     def _parse_power(self) -> ExpressionNode:
         node = self._parse_unary()
 
-        if self._match_operator("^"):
-            operator = self._previous().value
-            right = self._parse_power()
-            return BinaryOpNode(operator, node, right)
+        while True:
+            if self._match_operator("^"):
+                right = self._parse_power()
+                node = BinaryOpNode("^", node, right)
+                continue
+
+            if self._match_operator("_"):
+                right = self._parse_unary()
+                node = BinaryOpNode("_", node, right)
+                continue
+
+            break
 
         return node
 
