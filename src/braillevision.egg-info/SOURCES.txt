@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/braillevision/__init__.py
+src/braillevision/ast_nodes.py
+src/braillevision/lexer.py
+src/braillevision/nemeth_translator.py
+src/braillevision/parser.py
+src/braillevision/token_model.py
+src/braillevision.egg-info/PKG-INFO
+src/braillevision.egg-info/SOURCES.txt
+src/braillevision.egg-info/dependency_links.txt
+src/braillevision.egg-info/top_level.txt

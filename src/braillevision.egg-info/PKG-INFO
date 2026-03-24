@@ -1,0 +1,30 @@
+Metadata-Version: 2.4
+Name: braillevision
+Version: 0.1.0
+Summary: Rule-based Nemeth Braille translation engine for mathematical expressions
+Author: BrailleVision Team
+License: Proprietary
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: License :: Other/Proprietary License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
+# BrailleVision
+
+Python backend for rule-based translation of mathematical expressions into Nemeth Braille.
+
+## Run
+
+```bash
+python main.py "sqrt(x) + 1/2 = 5"
+```
+
+## Test
+
+```bash
+python -m unittest -v test_pipeline.py
+```
