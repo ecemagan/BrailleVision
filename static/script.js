@@ -191,12 +191,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 let errorHtml = res.error ? `<div class="error-text">Hata: ${res.error}</div>` : '';
                 
+                let expSafe = res.explanation ? res.explanation.replace(/'/g, "\\'") : '';
+                let explanationHtml = res.explanation ? `
+                    <div class="label" style="display:flex; justify-content:space-between; align-items:center;">
+                        AI Açıklaması 
+                        <button class="tts-btn" onclick="window.speakText('${expSafe}')">🔊 Dinle</button>
+                    </div>
+                    <div class="explanation-text">${escapeHtml(res.explanation)}</div>
+                ` : '';
+                
+                let mathSafe = res.expression ? res.expression.replace(/'/g, "\\'") : '';
+                let brailleSafe = res.braille ? res.braille.replace(/'/g, "\\'") : '';
+                
                 card.innerHTML = `
                     <div class="label">Matematiksel İfade</div>
                     <div class="math-expr">${escapeHtml(res.expression)}</div>
+                    ${explanationHtml}
                     <div class="label">Nemeth Braille</div>
                     <div class="braille-output">${res.braille}</div>
                     ${errorHtml}
+                    <div class="card-actions">
+                        <button class="export-btn" onclick="window.downloadTxt('${mathSafe}', '${brailleSafe}')">📥 İndir (.brf/.txt)</button>
+                    </div>
                 `;
                 resultsContent.appendChild(card);
             });
@@ -206,7 +222,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function escapeHtml(unsafe) {
-        return unsafe
+        if (!unsafe) return '';
+        return unsafe.toString()
              .replace(/&/g, "&amp;")
              .replace(/</g, "&lt;")
              .replace(/>/g, "&gt;")
@@ -214,3 +231,27 @@ document.addEventListener('DOMContentLoaded', () => {
              .replace(/'/g, "&#039;");
     }
 });
+
+window.speakText = function(text) {
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const msg = new SpeechSynthesisUtterance(text);
+        msg.lang = 'tr-TR';
+        window.speechSynthesis.speak(msg);
+    } else {
+        alert("Tarayıcınız sesli okumayı desteklemiyor.");
+    }
+};
+
+window.downloadTxt = function(math, braille) {
+    const content = `Matematiksel İfade:\n${math}\n\nNemeth Braille Çevirisi:\n${braille}\n`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'BrailleVision_Ceviri.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};

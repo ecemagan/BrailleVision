@@ -87,6 +87,8 @@ class Parser:
     def _parse_unary(self) -> ExpressionNode:
         if self._match_operator("-"):
             return BinaryOpNode("-", NumberNode("0"), self._parse_unary())
+        if self._match_operator("+"):
+            return self._parse_unary()
         return self._parse_primary()
 
     def _parse_primary(self) -> ExpressionNode:

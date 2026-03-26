@@ -55,28 +55,32 @@ async def read_index():
     from fastapi.responses import FileResponse
     return FileResponse("static/index.html")
 
-def process_file_with_gemini(file_bytes: bytes, mime_type: str) -> list[str]:
-    # Use Gemini model to extract math expressions
-    # gemini-1.5-flash is fast and supports multimodality including images and PDF.
+import json
+
+def process_file_with_gemini(file_bytes: bytes, mime_type: str) -> list[dict]:
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = """
-        Bu görselden/belgeden sadece matematiksel işlemleri/denklemleri çıkar. 
-        Sadece düz formatta metin olarak yaz (örn: sqrt(x) + 1/2 = 5). 
-        Markdown kullanma. Birden fazla denklem varsa her birini yeni bir satıra yaz.
-        Açıklama, yorum veya başka bir kelime yazma.
+        Aşağıdaki görsel/belgeden matematiksel işlemleri/denklemleri çıkar.
+        1. Eğer görselde 'l' ve '1' veya benzeri OCR hataları (Örn: Integral işareti yerine f, veya I) varsa bağlama göre DÜZELT.
+        2. Çıkarılan her bir denklem için öğrencilerin dinlerken anlayabileceği şekilde **değerleri ve sayıları bizzat telaffuz ederek** açıklayıcı bir Türkçe sesli okuma metni yaz. (Örn: Sadece 'bu bir çarpma işlemidir' deme; 'Bu eksi 3 ile eksi 2'nin çarpma işlemidir.' veya 'Karekök x artı bir bölü iki, beşe eşittir.' şeklinde bizzat ifadeyi oku).
+        3. Çıktıyı kesinlikle JSON formatında döndür. Markdown etiketlerini (```json ... ```) kullanma, direkt JSON dizisini (array) ver.
+        Format şu şekilde olmalı:
+        [
+            { "math": "sqrt(x) + 1/2 = 5", "explanation": "Karekök x artı bir bölü iki, beşe eşittir." }
+        ]
         """
         response = model.generate_content([
             {"mime_type": mime_type, "data": file_bytes},
             prompt
         ])
-        text = response.text.strip()
+        
+        text = response.text.replace('```json', '').replace('```', '').strip()
         if not text:
             return []
-        
-        # Split by newlines and clean up
-        expressions = [line.strip() for line in text.split('\n') if line.strip()]
-        return expressions
+            
+        data = json.loads(text)
+        return data if isinstance(data, list) else []
     except Exception as e:
         print(f"Gemini API Error: {e}")
         raise HTTPException(status_code=500, detail=f"Gemini API Error: {str(e)}")
@@ -89,12 +93,14 @@ async def process_document(file: UploadFile = File(...)):
     file_bytes = await file.read()
     mime_type = file.content_type
     
-    expressions = process_file_with_gemini(file_bytes, mime_type)
+    extracted_items = process_file_with_gemini(file_bytes, mime_type)
     
     results = []
-    for exp in expressions:
+    for item in extracted_items:
+        exp = item.get("math", "")
         res = translate_math_to_nemeth(exp)
         if res.get("braille") or res.get("error"):
+            res["explanation"] = item.get("explanation", "")
             results.append(res)
             
     return JSONResponse(content={"results": results})
@@ -107,36 +113,44 @@ async def process_image(image: UploadFile = File(...)):
     file_bytes = await image.read()
     mime_type = image.content_type
     
-    expressions = process_file_with_gemini(file_bytes, mime_type)
+    extracted_items = process_file_with_gemini(file_bytes, mime_type)
     
     results = []
-    for exp in expressions:
+    for item in extracted_items:
+        exp = item.get("math", "")
         res = translate_math_to_nemeth(exp)
         if res.get("braille") or res.get("error"):
+            res["explanation"] = item.get("explanation", "")
             results.append(res)
             
     return JSONResponse(content={"results": results})
 
-def process_text_raw_with_gemini(text_input: str) -> list[str]:
+def process_text_raw_with_gemini(text_input: str) -> list[dict]:
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = f"""
-        Aşağıdaki metinden sadece matematiksel işlemleri/denklemleri çıkar. 
-        Sadece düz formatta metin olarak yaz (örn: sqrt(x) + 1/2 = 5). 
-        Markdown kullanma. Birden fazla denklem varsa her birini yeni bir satıra yaz.
-        Eğer metinde matematiksel bir ifade yoksa hiçbir şey yazma. Kesinlikle açıklama bırakma.
+        Aşağıdaki metinden matematiksel işlemleri/denklemleri çıkar.
+        1. Eğer metinde optik okuyucu hatası gibi hatalar (örn 1 ve l karışması) varsa AI ile akıllıca bağlama göre düzelt.
+        2. Çıkarılan her bir denklem için **değerleri ve sayıları bizzat telaffuz ederek** detaylı bir Türkçe sesli okuma / açıklama metni yaz. (Örn: Sadece 'Bu bir arpma işlemidir' yerine 'Bu eksi 3 ile eksi 2'nin çarpma işlemidir.' veya 'A nın karesi artı B nin karesi.' gibi ifadeyi açıkça oku).
+        3. Çıktıyı JSON array formatında döndür. Başka hiçbir şey yazma.
+        Format:
+        [
+            {{ "math": "denklem formatı", "explanation": "Sayıları ve işlemleri barındıran Türkçe okuma metni" }}
+        ]
         
         Metin:
         {text_input}
         """
         response = model.generate_content(prompt)
-        text = response.text.strip()
+        text = response.text.replace('```json', '').replace('```', '').strip()
         if not text:
             return []
-        return [line.strip() for line in text.split('\n') if line.strip()]
+            
+        data = json.loads(text)
+        return data if isinstance(data, list) else []
     except Exception as e:
         print(f"Gemini API Error: {e}")
-        return [text_input]
+        return []
 
 class TextInput(BaseModel):
     text: str
@@ -146,17 +160,19 @@ async def process_text(data: TextInput):
     if not data.text or not data.text.strip():
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
     
-    # Use Gemini to extract cleanly
-    expressions = process_text_raw_with_gemini(data.text)
+    extracted_items = process_text_raw_with_gemini(data.text)
     
-    # Fallback if Gemini fails to extract or returns empty, try raw text lines
-    if not expressions:
+    if not extracted_items:
+        # Fallback to plain split
         expressions = [line.strip() for line in data.text.split('\n') if line.strip()]
+        extracted_items = [{"math": exp, "explanation": "Seçilen metin"} for exp in expressions]
     
     results = []
-    for exp in expressions:
+    for item in extracted_items:
+        exp = item.get("math", "")
         res = translate_math_to_nemeth(exp)
         if res.get("braille") or res.get("error"):
+            res["explanation"] = item.get("explanation", "")
             results.append(res)
             
     return JSONResponse(content={"results": results})

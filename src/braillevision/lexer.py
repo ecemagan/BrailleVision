@@ -34,7 +34,12 @@ class Lexer:
                 continue
 
             if self._is_operator(current):
-                tokens.append(Token(TokenType.OPERATOR, current))
+                op_val = current
+                if op_val in {".", "·"}:
+                    op_val = "*"
+                elif op_val == ":":
+                    op_val = "/"
+                tokens.append(Token(TokenType.OPERATOR, op_val))
                 self._advance()
                 continue
 
@@ -62,7 +67,7 @@ class Lexer:
 
     @staticmethod
     def _is_operator(character: str) -> bool:
-        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")"}
+        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")", ".", "·", ":"}
 
     def _peek(self) -> str:
         return self.source[self.position]

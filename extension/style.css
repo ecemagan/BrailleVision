@@ -93,6 +93,51 @@
     font-size: 24px;
     color: #8b5cf6;
     word-break: break-all;
+    margin-bottom: 8px;
+}
+
+#braillevision-ext-popup .bv-explanation {
+    font-size: 13px;
+    color: #e2e8f0;
+    background: rgba(139, 92, 246, 0.1);
+    border-left: 2px solid #8b5cf6;
+    padding: 8px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    line-height: 1.4;
+}
+
+#braillevision-ext-popup .bv-tts-btn {
+    background: transparent;
+    border: 1px solid #8b5cf6;
+    color: #8b5cf6;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+
+#braillevision-ext-popup .bv-tts-btn:hover {
+    background: #8b5cf6;
+    color: white;
+}
+
+#braillevision-ext-popup .bv-export-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #e2e8f0;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.2s;
+}
+
+#braillevision-ext-popup .bv-export-btn:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: #e2e8f0;
 }
 
 #braillevision-ext-popup .bv-error {
