@@ -20,7 +20,7 @@ from braillevision.nemeth_translator import NemethTranslator
 from braillevision.parser import Parser
 
 # Set Gemini API key
-os.environ["GEMINI_API_KEY"] = "AIzaSyBcyeSdUpl83hq0W7wh7ZbYOBdlS43wXBI"
+os.environ["GEMINI_API_KEY"] = "YourKey"
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 def translate_math_to_nemeth(expression: str) -> dict:
