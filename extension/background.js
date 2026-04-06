@@ -1,14 +1,20 @@
 chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
-        id: "translateToBraille",
-        title: "Seçili Metni Braille'a Çevir",
+        id: "translateMathToBraille",
+        title: "Matematik → Nemeth Braille'a Çevir",
+        contexts: ["selection"]
+    });
+    chrome.contextMenus.create({
+        id: "translateTextToBraille",
+        title: "Metin → Braille Alfabesine Çevir",
         contexts: ["selection"]
     });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === "translateToBraille") {
-        const selectedText = info.selectionText;
-        chrome.tabs.sendMessage(tab.id, { action: "translate", text: selectedText });
+    if (info.menuItemId === "translateMathToBraille") {
+        chrome.tabs.sendMessage(tab.id, { action: "translateMath", text: info.selectionText });
+    } else if (info.menuItemId === "translateTextToBraille") {
+        chrome.tabs.sendMessage(tab.id, { action: "translateAlpha", text: info.selectionText });
     }
 });

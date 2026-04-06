@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from .ast_nodes import (
+    AbsoluteValueNode,
     BinaryOpNode,
+    ConstantNode,
     ExpressionNode,
     FractionNode,
     FunctionNode,
     GroupedNode,
+    NthRootNode,
     NumberNode,
     RootNode,
     VariableNode,
@@ -23,18 +26,12 @@ class NemethTranslator:
     RADICAL_CLOSE = "⠻"
     SUPERSCRIPT_INDICATOR = "⠘"
     SUBSCRIPT_INDICATOR = "⠰"
+    ABS_OPEN = "⠳"
+    ABS_CLOSE = "⠳"
 
     DIGIT_MAP = {
-        "1": "⠁",
-        "2": "⠃",
-        "3": "⠉",
-        "4": "⠙",
-        "5": "⠑",
-        "6": "⠋",
-        "7": "⠛",
-        "8": "⠓",
-        "9": "⠊",
-        "0": "⠚",
+        "1": "⠁", "2": "⠃", "3": "⠉", "4": "⠙", "5": "⠑",
+        "6": "⠋", "7": "⠛", "8": "⠓", "9": "⠊", "0": "⠚",
     }
 
     OPERATOR_MAP = {
@@ -43,46 +40,84 @@ class NemethTranslator:
         "*": "⠈⠡",
         "/": "⠌",
         "=": "⠨⠅",
+        "<": "⠐⠅",
+        ">": "⠈⠅",
+        "≤": "⠐⠅⠨",
+        "≥": "⠈⠅⠨",
+        ",": "⠂",
     }
 
     FUNCTION_MAP = {
-        "sin": "⠎⠊⠝",
-        "cos": "⠉⠕⠎",
-        "tan": "⠞⠁⠝",
-        "log": "⠇⠕⠛",
+        # Trig
+        "sin":    "⠎⠊⠝",
+        "cos":    "⠉⠕⠎",
+        "tan":    "⠞⠁⠝",
+        "cot":    "⠉⠕⠞",
+        "sec":    "⠎⠑⠉",
+        "csc":    "⠉⠎⠉",
+
+        # Inverse trig
+        "arcsin": "⠁⠗⠉⠎⠊⠝",
+        "arccos": "⠁⠗⠉⠉⠕⠎",
+        "arctan": "⠁⠗⠉⠞⠁⠝",
+        "asin":   "⠁⠗⠉⠎⠊⠝",
+        "acos":   "⠁⠗⠉⠉⠕⠎",
+        "atan":   "⠁⠗⠉⠞⠁⠝",
+
+        # Hyperbolic
+        "sinh":   "⠎⠊⠝⠓",
+        "cosh":   "⠉⠕⠎⠓",
+        "tanh":   "⠞⠁⠝⠓",
+
+        # Log
+        "log":    "⠇⠕⠛",
+        "log2":   "⠇⠕⠛⠼⠃",
+        "log10":  "⠇⠕⠛⠼⠁⠚",
+        "ln":     "⠇⠝",
+
+        # Other
+        "exp":    "⠑⠭⠏",
+        "abs":    "⠳",          # opening abs bar (will be wrapped)
+        "ceil":   "⠈⠉⠑⠊⠇",
+        "floor":  "⠈⠋⠇⠕⠕⠗",
+        "max":    "⠍⠁⠭",
+        "min":    "⠍⠊⠝",
+        "lim":    "⠇⠊⠍",
+        "sum":    "⠨⠎",
+        "prod":   "⠨⠏",
+        "gcd":    "⠛⠉⠙",
+        "lcm":    "⠇⠉⠍",
+        "det":    "⠙⠑⠞",
+        "mod":    "⠍⠕⠙",
+        "sign":   "⠎⠛⠝",
+        "sgn":    "⠎⠛⠝",
+        "factorial": "⠖",
+        "fact":   "⠖",
+    }
+
+    CONSTANT_MAP = {
+        "pi":       "⠨⠏",
+        "e":        "⠑",
+        "inf":      "⠿",
+        "infinity": "⠿",
     }
 
     LETTER_MAP = {
-        "a": "⠁",
-        "b": "⠃",
-        "c": "⠉",
-        "d": "⠙",
-        "e": "⠑",
-        "f": "⠋",
-        "g": "⠛",
-        "h": "⠓",
-        "i": "⠊",
-        "j": "⠚",
-        "k": "⠅",
-        "l": "⠇",
-        "m": "⠍",
-        "n": "⠝",
-        "o": "⠕",
-        "p": "⠏",
-        "q": "⠟",
-        "r": "⠗",
-        "s": "⠎",
-        "t": "⠞",
-        "u": "⠥",
-        "v": "⠧",
-        "w": "⠺",
-        "x": "⠭",
-        "y": "⠽",
+        "a": "⠁", "b": "⠃", "c": "⠉", "d": "⠙", "e": "⠑",
+        "f": "⠋", "g": "⠛", "h": "⠓", "i": "⠊", "j": "⠚",
+        "k": "⠅", "l": "⠇", "m": "⠍", "n": "⠝", "o": "⠕",
+        "p": "⠏", "q": "⠟", "r": "⠗", "s": "⠎", "t": "⠞",
+        "u": "⠥", "v": "⠧", "w": "⠺", "x": "⠭", "y": "⠽",
         "z": "⠵",
     }
 
     def translate(self, node: ExpressionNode) -> str:
         """Translates one AST node into Nemeth Braille."""
+
+        if isinstance(node, ConstantNode):
+            mapped = self.CONSTANT_MAP.get(node.name.lower())
+            return mapped if mapped else node.name
+
         if isinstance(node, GroupedNode):
             return self._wrap_grouping(self.translate(node.inner))
 
@@ -97,6 +132,14 @@ class NemethTranslator:
 
         if isinstance(node, RootNode):
             return f"{self.RADICAL_OPEN} {self.translate(node.radicand)} {self.RADICAL_CLOSE}"
+
+        if isinstance(node, NthRootNode):
+            # Nemeth nth root: degree indicator before radical
+            degree_str = self._translate_number(str(node.degree))
+            return f"{self.SUPERSCRIPT_INDICATOR}{degree_str}{self.RADICAL_OPEN} {self.translate(node.radicand)} {self.RADICAL_CLOSE}"
+
+        if isinstance(node, AbsoluteValueNode):
+            return f"{self.ABS_OPEN}{self.translate(node.inner)}{self.ABS_CLOSE}"
 
         if isinstance(node, FractionNode):
             numerator = self.translate(node.numerator)
@@ -146,6 +189,10 @@ class NemethTranslator:
         mapped = self.FUNCTION_MAP.get(function_name)
         if mapped is None:
             raise ValueError(f"Unsupported function: {function_name}")
+
+        # Factorial / sign functions are postfix-style in some notations
+        if function_name in {"factorial", "fact"}:
+            return f"{self.translate(argument)}{mapped}"
 
         translated_argument = self.translate(argument)
         if isinstance(argument, GroupedNode):

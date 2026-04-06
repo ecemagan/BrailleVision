@@ -30,3 +30,7 @@ htmlcov/
 # Generated project files
 output.txt
 pipeline-test-report.md
+
+# Node/JS
+node_modules/
+package-lock.json

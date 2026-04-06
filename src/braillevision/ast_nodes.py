@@ -97,3 +97,34 @@ class GroupedNode(ExpressionNode):
 
     def __str__(self) -> str:
         return str(self.inner)
+
+
+@dataclass(frozen=True)
+class NthRootNode(ExpressionNode):
+    """Represents an nth root (e.g. cbrt = cube root)."""
+
+    degree: int
+    radicand: ExpressionNode
+
+    def __str__(self) -> str:
+        return f"root({self.degree}, {self.radicand})"
+
+
+@dataclass(frozen=True)
+class AbsoluteValueNode(ExpressionNode):
+    """Represents |expression|."""
+
+    inner: ExpressionNode
+
+    def __str__(self) -> str:
+        return f"|{self.inner}|"
+
+
+@dataclass(frozen=True)
+class ConstantNode(ExpressionNode):
+    """Represents a named constant like pi, e, inf."""
+
+    name: str
+
+    def __str__(self) -> str:
+        return self.name

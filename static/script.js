@@ -109,6 +109,62 @@ document.addEventListener('DOMContentLoaded', () => {
         processText(text);
     });
 
+    // Plain text → Braille Alphabet
+    const translateAlphaBtn = document.getElementById('translate-alpha-btn');
+    const alphaTextInput = document.getElementById('alpha-text-input');
+    const alphaResult = document.getElementById('alpha-braille-result');
+    const alphaOutput = document.getElementById('alpha-braille-output');
+    const alphaDownloadBtn = document.getElementById('alpha-download-btn');
+
+    translateAlphaBtn.addEventListener('click', async () => {
+        const text = alphaTextInput.value.trim();
+        if (!text) {
+            alert('Lütfen çevrilecek metni girin.');
+            return;
+        }
+
+        translateAlphaBtn.disabled = true;
+        translateAlphaBtn.textContent = 'Çevriliyor...';
+        alphaResult.classList.add('hidden');
+
+        try {
+            const response = await fetch('/api/translate_braille_text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || 'Bir hata oluştu');
+            }
+
+            const data = await response.json();
+            alphaOutput.textContent = data.braille;
+            alphaResult.classList.remove('hidden');
+        } catch (error) {
+            alert('Hata: ' + error.message);
+        } finally {
+            translateAlphaBtn.disabled = false;
+            translateAlphaBtn.textContent = 'Braille Alfabesine Çevir';
+        }
+    });
+
+    alphaDownloadBtn.addEventListener('click', () => {
+        const original = alphaTextInput.value.trim();
+        const braille = alphaOutput.textContent;
+        const content = `Orijinal Metin:\n${original}\n\nBraille Çevirisi:\n${braille}\n`;
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'BrailleVision_Alfabesi.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+
     async function processText(text) {
         setLoading(true);
         resultsContainer.classList.add('hidden');

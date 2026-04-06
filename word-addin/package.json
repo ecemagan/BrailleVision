@@ -1,0 +1,13 @@
+{
+  "name": "braillevision-word-addin",
+  "version": "1.0.0",
+  "description": "BrailleVision Word Add-in - Matematiksel ifadeleri ve metinleri Braille'a çevirir",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "install-certs": "npx office-addin-dev-certs install"
+  },
+  "dependencies": {
+    "office-addin-dev-certs": "^1.13.0"
+  }
+}

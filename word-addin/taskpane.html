@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BrailleVision</title>
+  <!-- Office.js – zorunlu, Word ile iletişim kurar -->
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="taskpane.css" />
+</head>
+<body>
+
+  <!-- Arka plan efektleri -->
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+  </div>
+
+  <div class="wrapper">
+
+    <!-- ── Başlık ─────────────────────────────────── -->
+    <header>
+      <div class="logo">Braille<span>Vision</span></div>
+      <div class="tagline">Matematiksel İfadeleri &amp; Metinleri Braille'a Çevir</div>
+    </header>
+
+    <!-- ── Backend durum göstergesi ──────────────── -->
+    <div class="status-bar" id="status-bar">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Backend bağlantısı kontrol ediliyor...</span>
+    </div>
+
+    <!-- ── Eylem butonları ────────────────────────── -->
+    <div>
+      <div class="section-label">Seçili Metin</div>
+      <div class="action-group">
+
+        <button class="action-btn primary" id="btn-alpha" title="Seçili metni Grade 1 Braille alfabesine çevirir">
+          <span class="icon">📄</span>
+          <div class="action-btn-inner">
+            <span class="label">Metni Braille Alfabesine Çevir</span>
+            <span class="sublabel">Seçili metni → Grade 1 Braille</span>
+          </div>
+        </button>
+
+        <button class="action-btn secondary" id="btn-math" title="Seçili matematiksel ifadeyi Nemeth Braille'a çevirir">
+          <span class="icon">🔢</span>
+          <div class="action-btn-inner">
+            <span class="label">Matematiği Nemeth Braille'a Çevir</span>
+            <span class="sublabel">sqrt, log, ln, sin, x^2, abs... destekler</span>
+          </div>
+        </button>
+
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Tüm Belge</div>
+      <div class="action-group">
+
+        <button class="action-btn" id="btn-doc" title="Belgenin tüm metnini Braille alfabesine çevirir">
+          <span class="icon">📋</span>
+          <div class="action-btn-inner">
+            <span class="label">Tüm Belgeyi Çevir</span>
+            <span class="sublabel">Tüm metin → Braille alfabesi</span>
+          </div>
+        </button>
+
+      </div>
+    </div>
+
+    <!-- ── Yükleniyor ──────────────────────────────── -->
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <span>Çevriliyor...</span>
+    </div>
+
+    <!-- ── Sonuç alanı ─────────────────────────────── -->
+    <div id="result-area"></div>
+
+  </div><!-- /wrapper -->
+
+  <script src="taskpane.js"></script>
+</body>
+</html>

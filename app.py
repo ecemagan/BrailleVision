@@ -18,9 +18,10 @@ if str(SRC_PATH) not in sys.path:
 from braillevision.lexer import Lexer
 from braillevision.nemeth_translator import NemethTranslator
 from braillevision.parser import Parser
+from braillevision.text_braille_translator import TextBrailleTranslator
 
 # Set Gemini API key
-os.environ["GEMINI_API_KEY"] = "YourKey"
+os.environ["GEMINI_API_KEY"] = "AIzaSyBCzXC38E0lCOgDz2x8mOCjdjGlQGwrMUA"
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 def translate_math_to_nemeth(expression: str) -> dict:
@@ -62,12 +63,21 @@ def process_file_with_gemini(file_bytes: bytes, mime_type: str) -> list[dict]:
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = """
         Aşağıdaki görsel/belgeden matematiksel işlemleri/denklemleri çıkar.
-        1. Eğer görselde 'l' ve '1' veya benzeri OCR hataları (Örn: Integral işareti yerine f, veya I) varsa bağlama göre DÜZELT.
-        2. Çıkarılan her bir denklem için öğrencilerin dinlerken anlayabileceği şekilde **değerleri ve sayıları bizzat telaffuz ederek** açıklayıcı bir Türkçe sesli okuma metni yaz. (Örn: Sadece 'bu bir çarpma işlemidir' deme; 'Bu eksi 3 ile eksi 2'nin çarpma işlemidir.' veya 'Karekök x artı bir bölü iki, beşe eşittir.' şeklinde bizzat ifadeyi oku).
-        3. Çıktıyı kesinlikle JSON formatında döndür. Markdown etiketlerini (```json ... ```) kullanma, direkt JSON dizisini (array) ver.
+        Desteklenen işlemler şunlardır: toplama, çıkarma, çarpma, bölme, üslü ifadeler (x^2),
+        kesirler, karekök (sqrt), küpkök (cbrt), logaritma (log, log2, log10, ln),
+        trigonometrik fonksiyonlar (sin, cos, tan, arcsin, arccos, arctan, sinh, cosh, tanh),
+        mutlak değer (abs), tavan/taban (ceil, floor), üstel fonksiyon (exp),
+        limit (lim), toplam (sum), çarpım (prod), faktöriyel (factorial),
+        pi, e, sonsuz (inf), max, min, gcd, lcm, mod.
+        
+        1. Eğer görselde OCR hataları (l ve 1 karışması, f ve integral işareti vb.) varsa bağlama göre DÜZELT.
+        2. Her denklem için programatik format kullan: örn. sqrt(x), log(x), log2(x), ln(x), abs(x), x^2, x_n.
+        3. Çıkarılan her bir denklem için öğrencilerin dinlerken anlayabileceği şekilde **değerleri ve sayıları bizzat telaffuz ederek** açıklayıcı bir Türkçe sesli okuma metni yaz.
+        4. Çıktıyı kesinlikle JSON formatında döndür. Markdown etiketlerini (```json ... ```) kullanma, direkt JSON dizisini (array) ver.
         Format şu şekilde olmalı:
         [
-            { "math": "sqrt(x) + 1/2 = 5", "explanation": "Karekök x artı bir bölü iki, beşe eşittir." }
+            { "math": "sqrt(x) + 1/2 = 5", "explanation": "Karekök x artı bir bölü iki, beşe eşittir." },
+            { "math": "log2(8) = 3", "explanation": "İki tabanında sekizin logaritması üçe eşittir." }
         ]
         """
         response = model.generate_content([
@@ -130,9 +140,17 @@ def process_text_raw_with_gemini(text_input: str) -> list[dict]:
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = f"""
         Aşağıdaki metinden matematiksel işlemleri/denklemleri çıkar.
-        1. Eğer metinde optik okuyucu hatası gibi hatalar (örn 1 ve l karışması) varsa AI ile akıllıca bağlama göre düzelt.
-        2. Çıkarılan her bir denklem için **değerleri ve sayıları bizzat telaffuz ederek** detaylı bir Türkçe sesli okuma / açıklama metni yaz. (Örn: Sadece 'Bu bir arpma işlemidir' yerine 'Bu eksi 3 ile eksi 2'nin çarpma işlemidir.' veya 'A nın karesi artı B nin karesi.' gibi ifadeyi açıkça oku).
-        3. Çıktıyı JSON array formatında döndür. Başka hiçbir şey yazma.
+        Desteklenen işlemler: toplama, çıkarma, çarpma, bölme, üslü ifadeler (x^2),
+        kesirler, karekök (sqrt), küpkök (cbrt), logaritma (log, log2, log10, ln),
+        trigonometrik fonksiyonlar (sin, cos, tan, arcsin, arccos, arctan, sinh, cosh, tanh),
+        mutlak değer (abs), tavan/taban (ceil, floor), üstel fonksiyon (exp),
+        limit (lim), toplam (sum), çarpım (prod), faktöriyel (factorial),
+        pi, e, sonsuz (inf), max, min, gcd, lcm, mod.
+        
+        1. Varsa OCR/optik hatalarını (1 ve l karışması vb.) akıllıca düzelt.
+        2. Her denklem için programatik formatta yaz: sqrt(x), log(x), log2(8), ln(x), abs(x), x^2, x_n.
+        3. Çıkarılan her bir denklem için **değerleri ve sayıları bizzat telaffuz ederek** detaylı bir Türkçe sesli okuma / açıklama metni yaz.
+        4. Çıktıyı JSON array formatında döndür. Başka hiçbir şey yazma.
         Format:
         [
             {{ "math": "denklem formatı", "explanation": "Sayıları ve işlemleri barındıran Türkçe okuma metni" }}
@@ -163,7 +181,6 @@ async def process_text(data: TextInput):
     extracted_items = process_text_raw_with_gemini(data.text)
     
     if not extracted_items:
-        # Fallback to plain split
         expressions = [line.strip() for line in data.text.split('\n') if line.strip()]
         extracted_items = [{"math": exp, "explanation": "Seçilen metin"} for exp in expressions]
     
@@ -177,6 +194,26 @@ async def process_text(data: TextInput):
             
     return JSONResponse(content={"results": results})
 
+
+class TextBrailleInput(BaseModel):
+    text: str
+
+@app.post("/api/translate_braille_text")
+async def translate_braille_text(data: TextBrailleInput):
+    """Translate plain text into Grade 1 Braille alphabet."""
+    if not data.text or not data.text.strip():
+        raise HTTPException(status_code=400, detail="Metin boş olamaz.")
+    
+    translator = TextBrailleTranslator()
+    braille_output = translator.translate(data.text)
+    
+    return JSONResponse(content={
+        "original": data.text,
+        "braille": braille_output
+    })
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+

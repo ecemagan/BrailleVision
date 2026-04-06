@@ -3,16 +3,25 @@ from __future__ import annotations
 from typing import List
 
 from .ast_nodes import (
+    AbsoluteValueNode,
     BinaryOpNode,
+    ConstantNode,
     ExpressionNode,
     FractionNode,
     FunctionNode,
     GroupedNode,
+    NthRootNode,
     NumberNode,
     RootNode,
     VariableNode,
 )
 from .token_model import Token, TokenType
+
+# Functions that take exactly two comma-separated arguments
+TWO_ARG_FUNCTIONS = frozenset({"log", "log2", "log10", "gcd", "lcm", "max", "min"})
+
+# Named constants (treated as zero-arg functions/keywords)
+CONSTANTS = frozenset({"pi", "inf", "infinity", "e"})
 
 
 class Parser:
@@ -97,14 +106,38 @@ class Parser:
 
         if self._match(TokenType.FUNCTION):
             function_name = self._previous().value
-            argument = self._parse_function_argument()
 
+            # Named constants – no argument needed
+            if function_name in CONSTANTS:
+                return ConstantNode(function_name)
+
+            # cbrt → NthRootNode(degree=3)
+            if function_name == "cbrt":
+                argument = self._parse_function_argument()
+                return NthRootNode(3, argument)
+
+            # sqrt → RootNode
             if function_name == "sqrt":
+                argument = self._parse_function_argument()
                 return RootNode(argument)
+
+            # abs → AbsoluteValueNode  (abs(...) style)
+            if function_name == "abs":
+                argument = self._parse_function_argument()
+                return AbsoluteValueNode(argument)
+
+            # General single-argument function
+            argument = self._parse_function_argument()
             return FunctionNode(function_name, argument)
 
         if self._match(TokenType.VARIABLE):
             return VariableNode(self._previous().value)
+
+        # Absolute value: |expr|
+        if self._match_operator("|"): 
+            inner = self._parse_equality()
+            self._consume_operator("|", "Expected closing '|' for absolute value.")
+            return AbsoluteValueNode(inner)
 
         if self._match_operator("("):
             inner = self._parse_equality()

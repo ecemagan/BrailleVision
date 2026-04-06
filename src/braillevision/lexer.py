@@ -8,7 +8,24 @@ from .token_model import Token, TokenType
 class Lexer:
     """Lexical analyzer for mathematical expressions."""
 
-    FUNCTION_NAMES = frozenset({"sin", "cos", "tan", "log", "sqrt"})
+    FUNCTION_NAMES = frozenset({
+        "sin", "cos", "tan",
+        "log", "log2", "log10", "ln",
+        "sqrt", "cbrt",
+        "abs",
+        "ceil", "floor",
+        "exp",
+        "arcsin", "arccos", "arctan",
+        "asin", "acos", "atan",
+        "sinh", "cosh", "tanh",
+        "lim", "sum", "prod",
+        "max", "min",
+        "det", "mod",
+        "factorial", "fact",
+        "pi", "inf", "infinity",
+        "gcd", "lcm",
+        "sign", "sgn",
+    })
 
     def __init__(self, source: str | None) -> None:
         self.source = source or ""
@@ -67,7 +84,7 @@ class Lexer:
 
     @staticmethod
     def _is_operator(character: str) -> bool:
-        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")", ".", "·", ":"}
+        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")", ".", "·", ":", ",", "|", "~", "≤", "≥", "<", ">"}
 
     def _peek(self) -> str:
         return self.source[self.position]
