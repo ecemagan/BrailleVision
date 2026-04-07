@@ -25,6 +25,10 @@ class Lexer:
         "pi", "inf", "infinity",
         "gcd", "lcm",
         "sign", "sgn",
+        # Calculus
+        "int", "integral",
+        "diff", "deriv", "derivative",
+        "partial",
     })
 
     def __init__(self, source: str | None) -> None:
@@ -50,12 +54,33 @@ class Lexer:
                 tokens.append(self._read_identifier())
                 continue
 
+            if current == "∅":
+                tokens.append(Token(TokenType.VARIABLE, "∅"))
+                self._advance()
+                continue
+
             if self._is_operator(current):
                 op_val = current
                 if op_val in {".", "·"}:
                     op_val = "*"
                 elif op_val == ":":
                     op_val = "/"
+                # Collapse '' -> double prime, ' -> single prime
+                elif op_val == "'":
+                    prime_count = 1
+                    while not self._is_at_end() and self._peek() == "'":
+                        prime_count += 1
+                        self._advance()
+                    tokens.append(Token(TokenType.OPERATOR, "'" * prime_count))
+                    continue
+                elif op_val == "∫":
+                    tokens.append(Token(TokenType.OPERATOR, "∫"))
+                    self._advance()
+                    continue
+                elif op_val == "∂":
+                    tokens.append(Token(TokenType.OPERATOR, "∂"))
+                    self._advance()
+                    continue
                 tokens.append(Token(TokenType.OPERATOR, op_val))
                 self._advance()
                 continue
@@ -84,7 +109,7 @@ class Lexer:
 
     @staticmethod
     def _is_operator(character: str) -> bool:
-        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")", ".", "·", ":", ",", "|", "~", "≤", "≥", "<", ">"}
+        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")", ".", "·", ":", ",", "|", "~", "≤", "≥", "<", ">", "∪", "∩", "∈", "∉", "⊂", "⊃", "⇔", "⇐", "⇒", "≡", "\\", "'", "∫", "∂"}
 
     def _peek(self) -> str:
         return self.source[self.position]

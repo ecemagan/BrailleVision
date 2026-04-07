@@ -1,13 +1,13 @@
-from __future__ import annotations
-
 from .ast_nodes import (
     AbsoluteValueNode,
     BinaryOpNode,
     ConstantNode,
+    DerivativeNode,
     ExpressionNode,
     FractionNode,
     FunctionNode,
     GroupedNode,
+    IntegralNode,
     NthRootNode,
     NumberNode,
     RootNode,
@@ -28,6 +28,15 @@ class NemethTranslator:
     SUBSCRIPT_INDICATOR = "⠰"
     ABS_OPEN = "⠳"
     ABS_CLOSE = "⠳"
+    # Calculus
+    INTEGRAL_SIGN      = "⠮"  # ∫
+    LOWER_LIMIT        = "⠢"  # subscript for lower bound
+    UPPER_LIMIT        = "⠔"  # superscript for upper bound
+    DIFFERENTIAL_D     = "⠙"  # d in dx
+    PARTIAL_D          = "⠨⠙"  # ∂
+    PRIME              = "⠄"  # ' (first derivative prime)
+    DOUBLE_PRIME       = "⠄⠄"  # '' (second derivative)
+    BASELINE_INDICATOR = "⠰"  # return to baseline
 
     DIGIT_MAP = {
         "1": "⠁", "2": "⠃", "3": "⠉", "4": "⠙", "5": "⠑",
@@ -45,6 +54,17 @@ class NemethTranslator:
         "≤": "⠐⠅⠨",
         "≥": "⠈⠅⠨",
         ",": "⠂",
+        "∪": "⠨⠩",
+        "∩": "⠨⠫",
+        "∈": "⠈⠑",
+        "∉": "⠈⠠⠑",
+        "⊂": "⠘⠣",
+        "⊃": "⠘⠜",
+        "⇔": "⠳⠪",
+        "⇐": "⠳⠣",
+        "⇒": "⠳⠕",
+        "≡": "⠸⠅",
+        "\\": "⠸⠡",
     }
 
     FUNCTION_MAP = {
@@ -100,6 +120,7 @@ class NemethTranslator:
         "e":        "⠑",
         "inf":      "⠿",
         "infinity": "⠿",
+        "∅":        "⠈⠚",
     }
 
     LETTER_MAP = {
@@ -161,6 +182,12 @@ class NemethTranslator:
                 return self._wrap_grouping(content)
             return content
 
+        if isinstance(node, IntegralNode):
+            return self._translate_integral(node)
+
+        if isinstance(node, DerivativeNode):
+            return self._translate_derivative(node)
+
         raise ValueError(f"Unsupported node type: {type(node).__name__}")
 
     def _translate_number(self, value: str) -> str:
@@ -202,6 +229,36 @@ class NemethTranslator:
     def _translate_script(self, base: ExpressionNode, script: ExpressionNode, indicator: str) -> str:
         """Translates Nemeth superscript or subscript notation."""
         return f"{self.translate(base)} {indicator} {self.translate(script)}"
+
+    def _translate_integral(self, node: IntegralNode) -> str:
+        """Translates an IntegralNode into Nemeth Braille."""
+        integrand = self.translate(node.integrand)
+        diff_var = f"{self.DIFFERENTIAL_D}{self._translate_variable(node.variable)}"
+        if node.lower is not None and node.upper is not None:
+            lower_str  = self.translate(node.lower)
+            upper_str  = self.translate(node.upper)
+            return f"{self.INTEGRAL_SIGN} {self.LOWER_LIMIT}{lower_str} {self.UPPER_LIMIT}{upper_str} {integrand} {diff_var}"
+        return f"{self.INTEGRAL_SIGN} {integrand} {diff_var}"
+
+    def _translate_derivative(self, node: DerivativeNode) -> str:
+        """Translates a DerivativeNode into Nemeth Braille."""
+        d_sym = self.PARTIAL_D if False else self.DIFFERENTIAL_D  # extend later for partial
+        var   = self._translate_variable(node.variable)
+        expr  = self.translate(node.expression)
+
+        if node.prime:
+            # f'(x) notation — prime marks after expression
+            primes = self.PRIME * node.order
+            return f"{expr} {primes}"
+
+        if node.order == 1:
+            # Nemeth first-derivative: d/dx (expr)
+            return f"{d_sym}{self.FRACTION_LINE}{d_sym}{var} {expr}"
+        else:
+            # Higher order: d^n / dx^n
+            order_braille = self._translate_number(str(node.order))
+            sup = self.SUPERSCRIPT_INDICATOR
+            return f"{d_sym} {sup}{order_braille} {self.FRACTION_LINE} {d_sym}{var} {sup}{order_braille} {expr}"
 
     @staticmethod
     def _wrap_grouping(content: str) -> str:

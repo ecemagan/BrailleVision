@@ -6,10 +6,12 @@ from .ast_nodes import (
     AbsoluteValueNode,
     BinaryOpNode,
     ConstantNode,
+    DerivativeNode,
     ExpressionNode,
     FractionNode,
     FunctionNode,
     GroupedNode,
+    IntegralNode,
     NthRootNode,
     NumberNode,
     RootNode,
@@ -22,6 +24,10 @@ TWO_ARG_FUNCTIONS = frozenset({"log", "log2", "log10", "gcd", "lcm", "max", "min
 
 # Named constants (treated as zero-arg functions/keywords)
 CONSTANTS = frozenset({"pi", "inf", "infinity", "e"})
+
+# Calculus functions
+INTEGRAL_FUNCTIONS = frozenset({"int", "integral"})
+DERIVATIVE_FUNCTIONS = frozenset({"diff", "deriv", "derivative", "partial"})
 
 
 class Parser:
@@ -40,7 +46,13 @@ class Parser:
     def _parse_equality(self) -> ExpressionNode:
         node = self._parse_additive()
 
-        while self._match_operator("="):
+        while (self._match_operator("=") or self._match_operator("<") or 
+               self._match_operator(">") or self._match_operator("≤") or 
+               self._match_operator("≥") or self._match_operator("⇔") or 
+               self._match_operator("⇐") or self._match_operator("⇒") or 
+               self._match_operator("≡") or self._match_operator("∈") or 
+               self._match_operator("∉") or self._match_operator("⊂") or 
+               self._match_operator("⊃")):
             operator = self._previous().value
             right = self._parse_additive()
             node = BinaryOpNode(operator, node, right)
@@ -50,7 +62,9 @@ class Parser:
     def _parse_additive(self) -> ExpressionNode:
         node = self._parse_multiplicative()
 
-        while self._match_operator("+") or self._match_operator("-"):
+        while (self._match_operator("+") or self._match_operator("-") or 
+               self._match_operator("∪") or self._match_operator("∩") or 
+               self._match_operator("\\")):
             operator = self._previous().value
             right = self._parse_multiplicative()
             node = BinaryOpNode(operator, node, right)
@@ -111,6 +125,14 @@ class Parser:
             if function_name in CONSTANTS:
                 return ConstantNode(function_name)
 
+            # Integral: int(integrand, var) or int(integrand, var, lower, upper)
+            if function_name in INTEGRAL_FUNCTIONS:
+                return self._parse_integral(function_name == "partial")
+
+            # Derivative: diff(expr, var) or diff(expr, var, order)
+            if function_name in DERIVATIVE_FUNCTIONS:
+                return self._parse_derivative(function_name == "partial")
+
             # cbrt → NthRootNode(degree=3)
             if function_name == "cbrt":
                 argument = self._parse_function_argument()
@@ -131,7 +153,22 @@ class Parser:
             return FunctionNode(function_name, argument)
 
         if self._match(TokenType.VARIABLE):
-            return VariableNode(self._previous().value)
+            name = self._previous().value
+            if name == "∅":
+                return ConstantNode(name)
+            node: ExpressionNode = VariableNode(name)
+            # Handle prime notation: f'(x), f''(x) ...
+            if self._peek().is_operator("'") or self._peek().is_operator("''") or self._peek().is_operator("'''"):
+                prime_tok = self._advance()
+                order = len(prime_tok.value)  # number of quotes
+                # Optional argument in parens: f'(x)
+                if self._peek().is_operator("("):
+                    self._advance()  # consume (
+                    var_tok = self._consume(TokenType.VARIABLE, "Expected variable in prime derivative.")
+                    self._consume_operator(")", "Expected ')' after prime derivative variable.")
+                    return DerivativeNode(node, var_tok.value, order=order, prime=True)
+                return DerivativeNode(node, "x", order=order, prime=True)
+            return node
 
         # Absolute value: |expr|
         if self._match_operator("|"): 
@@ -153,6 +190,44 @@ class Parser:
             return self._mark_explicit_grouping(inner)
 
         return self._parse_unary()
+
+    def _parse_integral(self, is_partial: bool = False) -> "IntegralNode":
+        """Parse int(integrand, var) or int(integrand, var, lower, upper)."""
+        self._consume_operator("(", "Expected '(' after 'int'.")
+        integrand = self._parse_equality()
+        self._consume_operator(",", "Expected ',' after integrand in int().")
+        var_tok = self._consume(TokenType.VARIABLE, "Expected variable after ',' in int().")
+        variable = var_tok.value
+
+        # Check for limits: int(f, x, lower, upper)
+        lower = None
+        upper = None
+        if self._match_operator(","):
+            lower = self._parse_equality()
+            self._consume_operator(",", "Expected ',' between lower and upper bounds.")
+            upper = self._parse_equality()
+
+        self._consume_operator(")", "Expected ')' to close int().")
+        return IntegralNode(integrand, variable, lower, upper)
+
+    def _parse_derivative(self, is_partial: bool = False) -> "DerivativeNode":
+        """Parse diff(expr, var) or diff(expr, var, order)."""
+        self._consume_operator("(", "Expected '(' after 'diff'.")
+        expression = self._parse_equality()
+        self._consume_operator(",", "Expected ',' after expression in diff().")
+        var_tok = self._consume(TokenType.VARIABLE, "Expected variable after ',' in diff().")
+        variable = var_tok.value
+
+        order = 1
+        if self._match_operator(","):
+            order_node = self._parse_equality()
+            # Try to get integer order from NumberNode
+            from .ast_nodes import NumberNode as _NNode
+            if isinstance(order_node, _NNode):
+                order = int(order_node.value)
+
+        self._consume_operator(")", "Expected ')' to close diff().")
+        return DerivativeNode(expression, variable, order=order, prime=False)
 
     @staticmethod
     def _mark_explicit_grouping(node: ExpressionNode) -> ExpressionNode:

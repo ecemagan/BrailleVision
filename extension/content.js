@@ -119,12 +119,12 @@ async function showAlphaPopup(text) {
 
         document.getElementById("alpha-export-btn").addEventListener('click', () => {
             const content = `Orijinal Metin:\n${data.original}\n\nBraille Çevirisi:\n${data.braille}\n`;
-            downloadTxt(content, 'BrailleVision_Alfabesi.txt');
+            downloadTxt(content, 'Braille Vision_Alfabesi.txt');
         });
 
     } catch (err) {
         popup.querySelector('.bv-content').innerHTML =
-            `<div class="bv-error">Çeviri yapılamadı. BrailleVision sunucusunun (http://localhost:8000) arkaplanda çalıştığından emin olun.</div>`;
+            `<div class="bv-error">Çeviri yapılamadı. Braille Vision sunucusunun (http://localhost:8000) arkaplanda çalıştığından emin olun.</div>`;
     }
 }
 

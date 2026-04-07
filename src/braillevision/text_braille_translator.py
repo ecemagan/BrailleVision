@@ -22,9 +22,8 @@ class TextBrailleTranslator:
         "z": "⠵",
     }
 
-    # Turkish-specific characters mapped to their closest Braille equivalents
     TURKISH_MAP: dict[str, str] = {
-        "ç": "⠡", "ğ": "⠣", "ı": "⠊", "ö": "⠪", "ş": "⠩", "ü": "⠳",
+        "ç": "⠡", "ğ": "⠣", "ı": "⠔", "ö": "⠪", "ş": "⠩", "ü": "⠳",
         "â": "⠁", "î": "⠊", "û": "⠥",  # long vowels
     }
 

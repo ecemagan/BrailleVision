@@ -128,3 +128,39 @@ class ConstantNode(ExpressionNode):
 
     def __str__(self) -> str:
         return self.name
+
+
+@dataclass(frozen=True)
+class IntegralNode(ExpressionNode):
+    """Represents an integral expression: ∫ integrand d(variable).
+    lower and upper are None for indefinite integrals.
+    """
+
+    integrand: ExpressionNode
+    variable: str
+    lower: ExpressionNode | None = None
+    upper: ExpressionNode | None = None
+
+    def __str__(self) -> str:
+        limits = f"_{self.lower}^{self.upper}" if self.lower is not None else ""
+        return f"∫{limits} {self.integrand} d{self.variable}"
+
+
+@dataclass(frozen=True)
+class DerivativeNode(ExpressionNode):
+    """Represents a derivative expression: d^n f / d variable^n.
+    order=1 is first derivative, order=2 is second derivative, etc.
+    prime=True means f'(x) notation.
+    """
+
+    expression: ExpressionNode
+    variable: str
+    order: int = 1
+    prime: bool = False
+
+    def __str__(self) -> str:
+        if self.prime:
+            marks = "'" * self.order
+            return f"f{marks}({self.variable})"
+        sup = f"^{self.order}" if self.order > 1 else ""
+        return f"d{sup}/d{self.variable}{sup} ({self.expression})"

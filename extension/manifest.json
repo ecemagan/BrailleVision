@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "BrailleVision",
+  "name": "Braille Vision",
   "version": "1.0",
   "description": "Ekranda seçili matematiksel metinleri Nemeth Braille formatına çevirir.",
   "permissions": ["contextMenus", "activeTab"],
@@ -16,6 +16,18 @@
     }
   ],
   "action": {
-    "default_title": "BrailleVision"
+    "default_title": "Braille Vision",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   }
 }

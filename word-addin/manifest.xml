@@ -8,10 +8,10 @@
 
   <Id>b8e4f2a1-d3c6-4e7b-8c9d-0a1b2c3d4e5f</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>BrailleVision</ProviderName>
+  <ProviderName>Braille Vision</ProviderName>
   <DefaultLocale>tr-TR</DefaultLocale>
 
-  <DisplayName DefaultValue="BrailleVision"/>
+  <DisplayName DefaultValue="Braille Vision"/>
   <Description DefaultValue="Matematiksel ifadeleri ve metinleri Nemeth ve Grade 1 Braille alfabesine cevirir."/>
 
   <IconUrl DefaultValue="https://localhost:3000/icon-32.png"/>
@@ -84,11 +84,11 @@
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GroupLabel" DefaultValue="BrailleVision"/>
+        <bt:String id="GroupLabel" DefaultValue="Braille Vision"/>
         <bt:String id="TaskpaneButton.Label" DefaultValue="Braille Cevir"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="BrailleVision panelini acar. Secili metni Braille alfabesine, matematiksel ifadeleri Nemeth Braille koduna cevirir."/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Braille Vision panelini acar. Secili metni Braille alfabesine, matematiksel ifadeleri Nemeth Braille koduna cevirir."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
