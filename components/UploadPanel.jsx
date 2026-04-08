@@ -2,11 +2,23 @@
 
 import { useState } from "react";
 import { convertToBraille } from "@/lib/convertToBraille";
+import { saveDocumentRecord } from "@/lib/documents";
+import { extractImageText } from "@/lib/extractImageText";
 import { extractPdfText } from "@/lib/extractPdfText";
+import { getFriendlyDocumentMessage } from "@/lib/userMessages";
+
+function detectConversionMode(text, sourceType) {
+  if (sourceType === "image" || sourceType === "camera") {
+    return "ocr";
+  }
+
+  return /[=+\-*/^_()[\]{}<>]|sqrt|log|ln|sin|cos|tan/i.test(text) ? "nemeth" : "text";
+}
 
 export function UploadPanel({ userId, supabase, onSaved }) {
   const [manualText, setManualText] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedSourceType, setSelectedSourceType] = useState("manual");
   const [brailleResult, setBrailleResult] = useState("");
   const [sourceText, setSourceText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -21,6 +33,7 @@ export function UploadPanel({ userId, supabase, onSaved }) {
         return {
           fileName: selectedFile.name,
           originalText: await selectedFile.text(),
+          sourceType: "manual",
         };
       }
 
@@ -28,16 +41,26 @@ export function UploadPanel({ userId, supabase, onSaved }) {
         return {
           fileName: selectedFile.name,
           originalText: await extractPdfText(selectedFile),
+          sourceType: "pdf",
         };
       }
 
-      throw new Error("Please upload a .txt or .pdf file.");
+      if (selectedFile.type.startsWith("image/")) {
+        return {
+          fileName: selectedFile.name,
+          originalText: await extractImageText(selectedFile),
+          sourceType: selectedSourceType === "camera" ? "camera" : "image",
+        };
+      }
+
+      throw new Error("Please upload a .txt, .pdf, or image file.");
     }
 
     if (manualText.trim()) {
       return {
         fileName: "manual-input.txt",
         originalText: manualText.trim(),
+        sourceType: "manual",
       };
     }
 
@@ -51,30 +74,31 @@ export function UploadPanel({ userId, supabase, onSaved }) {
     setSuccessMessage("");
 
     try {
-      const { fileName, originalText } = await getInputText();
+      const { fileName, originalText, sourceType } = await getInputText();
+      const conversionMode = detectConversionMode(originalText, sourceType);
       const brailleText = convertToBraille(originalText);
 
       setSourceText(originalText);
       setBrailleResult(brailleText);
 
       // Every saved conversion is tied to the logged-in user.
-      const { error } = await supabase.from("documents").insert({
-        user_id: userId,
-        file_name: fileName,
-        original_text: originalText,
-        braille_text: brailleText,
+      await saveDocumentRecord({
+        supabase,
+        userId,
+        fileName,
+        originalText,
+        brailleText,
+        sourceType,
+        conversionMode,
       });
-
-      if (error) {
-        throw error;
-      }
 
       setSuccessMessage("Conversion saved to Supabase.");
       setManualText("");
       setSelectedFile(null);
+      setSelectedSourceType("manual");
       onSaved?.();
     } catch (error) {
-      setErrorMessage(error.message || "Could not convert the document.");
+      setErrorMessage(getFriendlyDocumentMessage(error, "The upload could not be converted right now."));
     } finally {
       setSaving(false);
     }
@@ -89,7 +113,7 @@ export function UploadPanel({ userId, supabase, onSaved }) {
             <h2 className="font-display mt-2 text-3xl font-bold text-slate-950">Convert text to Braille</h2>
           </div>
           <p className="max-w-md text-sm leading-6 text-slate-600">
-            Paste text directly, or upload a `.txt` or `.pdf` file. Text, math, and selectable PDF text are converted for real.
+            Paste text directly, upload `.txt` or `.pdf`, or use a photo. Image text is read with OCR before conversion.
           </p>
         </div>
 
@@ -106,11 +130,28 @@ export function UploadPanel({ userId, supabase, onSaved }) {
           </label>
 
           <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">Upload file</span>
+            <span className="mb-2 block text-sm font-semibold text-slate-700">Upload file or image</span>
             <input
               type="file"
-              accept=".txt,.pdf"
-              onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+              accept=".txt,.pdf,image/*"
+              onChange={(event) => {
+                setSelectedFile(event.target.files?.[0] ?? null);
+                setSelectedSourceType("image");
+              }}
+              className="w-full rounded-[24px] border border-dashed border-violet-200 bg-white/80 px-4 py-3 text-sm text-slate-600"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-700">Use camera</span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => {
+                setSelectedFile(event.target.files?.[0] ?? null);
+                setSelectedSourceType("camera");
+              }}
               className="w-full rounded-[24px] border border-dashed border-violet-200 bg-white/80 px-4 py-3 text-sm text-slate-600"
             />
           </label>
@@ -138,7 +179,7 @@ export function UploadPanel({ userId, supabase, onSaved }) {
             disabled={saving}
             className="button-primary w-full rounded-full px-5 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {saving ? "Converting and saving..." : "Convert to Braille"}
+            {saving ? "Reading, converting, and saving..." : "Convert to Braille"}
           </button>
         </form>
       </div>

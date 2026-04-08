@@ -2,6 +2,14 @@
 
 This repository now includes a Next.js dashboard that uses Supabase Auth and Database to save Braille conversions.
 
+Core product foundations now included:
+
+- `profiles` table for display name, role, and workspace preferences
+- richer `documents` metadata for source type, conversion mode, favorite state, and archive state
+- bulk document management in the dashboard
+- OCR support for images and camera input
+- Word add-in history sync into the dashboard
+
 ## Dashboard setup
 
 1. Install dependencies:
@@ -24,6 +32,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
 4. Run the SQL in `supabase/documents.sql` inside the Supabase SQL editor.
+   This step now creates both `profiles` and the expanded `documents` schema, so re-run it after pulling the latest changes.
 
 5. Start the dashboard:
 
@@ -32,6 +41,32 @@ npm run dev
 ```
 
 The app runs at `http://localhost:3000`.
+
+## Word add-in with the new UI
+
+Run the three services below together when testing the Word extension:
+
+1. Next.js UI on port `3001`:
+
+```bash
+npm run dev:addin
+```
+
+2. Python backend on port `8000`:
+
+```bash
+python3 app.py
+```
+
+3. Word HTTPS gateway on port `3000`:
+
+```bash
+cd word-addin
+npm install
+npm start
+```
+
+The Word manifest still uses the same sideload flow, but it now opens `https://localhost:3000/word`, which proxies the UI from Next.js and the API calls from the Python backend.
 
 ## Existing Python translator
 
@@ -46,165 +81,170 @@ python3 main.py
 ```bash
 python3 -m unittest -v test_pipeline.py
 ```
+<<<<<<< Updated upstream
+=======
 
+## Full project runbook
 
+Use this section when you want the dashboard, Python translator backend, and the Word extension to work together with the latest UI.
 
-# BrailleVision – Kurulum Rehberi
-
-Bu rehber, projeyi GitHub'dan çektikten sonra sıfırdan kurmak için adım adım talimatlar içerir.
-Hem **macOS** hem **Windows** için talimatlar verilmiştir.
-
----
-
-## Gereksinimler
-
-Kurulması gereken programlar:
-
-| Program | Sürüm | İndirme |
-|---------|-------|---------|
-| Python | 3.10+ | https://www.python.org/downloads/ |
-| Node.js | 18+ | https://nodejs.org/ |
-| Microsoft Word | macOS veya Windows | Microsoft 365 |
-
-> ⚠️ Python kurulumunda **"Add Python to PATH"** kutucuğunu işaretlemeyi unutma (Windows'ta).
-
----
-
-## Adım 1 – Projeyi İndir
+### 1. Install project dependencies
 
 ```bash
-git clone https://github.com/KULLANICI_ADI/BrailleVision.git
-cd BrailleVision
-```
-
----
-
-## Adım 2 – Python Bağımlılıklarını Kur
-
-```bash
-pip install -r requirements.txt
-```
-
-> Windows'ta `pip` çalışmazsa `py -m pip install -r requirements.txt` dene.
-
----
-
-## Adım 3 – Word Eklentisi Bağımlılıklarını Kur
-
-```bash
-cd word-addin
+cd /Users/durukula/Documents/GitHub/BrailleVision
 npm install
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
 
----
+### 2. Make sure Supabase is configured
 
-## Adım 4 – HTTPS Sertifikasını Kur
-
-Word eklentileri HTTPS gerektiriyor. Aşağıdaki komutu çalıştır:
+Create `.env.local` if it does not exist yet:
 
 ```bash
-# word-addin klasöründeyken:
-npm run install-certs
+cp .env.local.example .env.local
 ```
 
-> macOS'ta şifre sorabilir — Mac giriş şifreni gir.
-> Windows'ta "Evet" onayı ister.
+Then fill in:
 
----
+```env
+NEXT_PUBLIC_SUPABASE_URL=your-project-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
 
-## Adım 5 – Manifest'i Word'e Tanıt
+Re-run the SQL after the latest schema changes:
 
-Bu adım **bir kez** yapılır. İşletim sistemine göre farklı:
+```text
+Open supabase/documents.sql in the Supabase SQL Editor and run it again.
+```
 
-### macOS:
+### 3. Start the dashboard only
+
+If you only want the web dashboard:
 
 ```bash
-# Terminal'de çalıştır:
+cd /Users/durukula/Documents/GitHub/BrailleVision
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+### 4. Start the full stack with Word extension
+
+You need 3 terminals.
+
+Terminal 1: Next UI for the Word add-in
+
+```bash
+cd /Users/durukula/Documents/GitHub/BrailleVision
+npm run dev:addin
+```
+
+This serves the modern add-in UI at:
+
+```text
+http://localhost:3001/word
+```
+
+Terminal 2: Python translator backend
+
+```bash
+cd /Users/durukula/Documents/GitHub/BrailleVision
+source .venv/bin/activate
+python app.py
+```
+
+This serves the translation backend at:
+
+```text
+http://localhost:8000
+```
+
+Terminal 3: Word HTTPS gateway
+
+```bash
+cd /Users/durukula/Documents/GitHub/BrailleVision/word-addin
+npm install
+npm start
+```
+
+This serves the sideloaded Word add-in host at:
+
+```text
+https://localhost:3000/word
+```
+
+### 5. Re-copy the Word manifest after updates
+
+If the manifest changed, copy it again:
+
+```bash
 mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef
-cp word-addin/manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/BrailleVision.xml
+cp /Users/durukula/Documents/GitHub/BrailleVision/word-addin/manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
 ```
 
-### Windows:
+Then fully close and reopen Microsoft Word.
 
-1. `word-addin` klasörünün tam yolunu bul (örn: `C:\Users\ADINIZ\BrailleVision\word-addin`)
-2. Word'ü aç → **Dosya → Seçenekler → Güven Merkezi → Güven Merkezi Ayarları**
-3. **Güvenilen Eklenti Katalogları** sekmesine tıkla
-4. Katalog URL'sine `word-addin` klasörünün yolunu yaz (örn: `\\localhost\BrailleVision\word-addin`)
-5. **Listeye Ekle** → **Menüde Göster** kutusunu işaretle → **Tamam**
-6. Word'ü kapat ve yeniden aç
+### 6. Sign in before using history sync
 
----
+If you want Word extension conversions to appear in the dashboard history:
 
-## Adım 6 – Sunucuları Başlat
+1. Open `https://localhost:3000/login`
+2. Sign in with the same Supabase user you use in the dashboard
+3. Open the Word add-in and run conversions
 
-Her kullanımdan önce **iki terminal** açıp şu komutları çalıştır:
+The add-in will then save records into the same `documents` table.
 
-### Terminal 1 – Python Backend:
+### 7. Important port rules
 
-```bash
-# BrailleVision ana klasöründe:
-cd BrailleVision
-python3 app.py          # macOS
-python app.py           # Windows
-```
+- `3000` is reserved for the Word HTTPS gateway when testing the extension
+- `3001` is reserved for the new Next.js add-in UI
+- `8000` is reserved for the Python backend
 
-Başarılı çıktı:
-```
-INFO: Uvicorn running on http://127.0.0.1:8000
-INFO: Application startup complete.
-```
+Do not run `npm run dev` on `3000` at the same time as `word-addin/npm start`.
 
-### Terminal 2 – Word Eklentisi HTTPS Sunucusu:
+### 8. Typical daily startup sequence
 
-```bash
-# word-addin klasöründe:
-cd BrailleVision/word-addin
-node server.js
-```
-
-Başarılı çıktı:
-```
-✅ BrailleVision Word Add-in sunucusu başlatıldı!
-🌐 HTTPS:  https://localhost:3000
-🔀 Proxy:  /api/* → http://localhost:8000
-```
-
----
-
-## Adım 7 – Word'de Eklentiyi Aç
-
-1. Microsoft Word'ü aç (sunucular çalışırken)
-2. **Ekle** sekmesine tıkla
-3. **Eklentilerim** → **Paylaşılan Klasör** → **BrailleVision** seç
-4. Sağ tarafta BrailleVision paneli açılır
-
----
-
-## Sorun Giderme
-
-### ❌ "Backend bağlanamadı" hatası
-→ Terminal 1'deki Python sunucusunu başlattığından emin ol (`python3 app.py`)
-
-### ❌ Panel hiç açılmıyor
-→ Terminal 2'deki Node sunucusunun çalıştığından emin ol (`node server.js`)
-→ `https://localhost:3000` adresini tarayıcıda aç — "Bağlantı güvenli değil" uyarısı gelirse **Gelişmiş → Yine de devam et** de
-
-### ❌ `npm run install-certs` başarısız oldu
-→ Şunu dene: `npx office-addin-dev-certs install`
-
-### ❌ Windows'ta port engeli
-→ Güvenlik duvarı (Firewall) 3000 ve 8000 portlarına izin vermeli. Windows Defender Firewall → Uygulama izni ver.
-
----
-
-## Her Oturumda Çalıştırılacaklar (Özet)
+If you want everything running:
 
 ```bash
 # Terminal 1
-cd BrailleVision && python3 app.py
-
-# Terminal 2
-cd BrailleVision/word-addin && node server.js
+cd /Users/durukula/Documents/GitHub/BrailleVision
+npm run dev:addin
 ```
 
-Sonra Word'ü aç → Eklentilerim → BrailleVision ✅
+```bash
+# Terminal 2
+cd /Users/durukula/Documents/GitHub/BrailleVision
+source .venv/bin/activate
+python app.py
+```
+
+```bash
+# Terminal 3
+cd /Users/durukula/Documents/GitHub/BrailleVision/word-addin
+npm start
+```
+
+Then:
+
+1. Open `https://localhost:3000/login`
+2. Sign in
+3. Open Microsoft Word
+4. Launch the Braille Vision add-in
+
+### 9. Quick troubleshooting
+
+- If dashboard actions fail:
+  Re-run `supabase/documents.sql`
+- If `fastapi` is missing:
+  Use `.venv` and run `python -m pip install -r requirements.txt`
+- If `https://localhost:3000` does not open:
+  Make sure `word-addin/npm start` is running and port `3000` is free
+- If Word add-in opens but translation fails:
+  Make sure `python app.py` is running on `8000`
+>>>>>>> Stashed changes

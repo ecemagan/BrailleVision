@@ -3,7 +3,7 @@ import Link from "next/link";
 const featureCards = [
   {
     title: "Upload documents",
-    description: "Paste text directly or upload .txt and .pdf files for a Braille-ready workflow.",
+    description: "Paste text directly or upload .txt, .pdf, and image files for a Braille-ready workflow.",
   },
   {
     title: "Save every result",
@@ -27,7 +27,7 @@ export default function HomePage() {
             A focused workspace for converting text into Braille and saving every result.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
-            Sign in with Supabase Auth, upload text or documents, generate Braille output for text and math,
+            Sign in with Supabase Auth, upload text, documents, or photos, generate Braille output for text and math,
             and keep a personal archive inside the dashboard.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
