@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LoadingCard } from "@/components/LoadingCard";
 import { useAuth } from "@/components/AuthProvider";
+import { DEFAULT_PROFILE_PREFERENCES } from "@/lib/profiles";
+import { getFriendlyAuthMessage } from "@/lib/userMessages";
 
 const authContent = {
   login: {
@@ -28,8 +30,10 @@ const authContent = {
 export function AuthForm({ mode }) {
   const router = useRouter();
   const { supabase, user, loading, configError } = useAuth();
+  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [dashboardDensity, setDashboardDensity] = useState(DEFAULT_PROFILE_PREFERENCES.dashboardDensity);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -56,13 +60,22 @@ export function AuthForm({ mode }) {
         const { error } = await supabase.auth.signUp({
           email,
           password,
+          options: {
+            data: {
+              display_name: displayName.trim() || undefined,
+              preferences: {
+                ...DEFAULT_PROFILE_PREFERENCES,
+                dashboardDensity,
+              },
+            },
+          },
         });
 
         if (error) {
           throw error;
         }
 
-        setMessage("Account created. If email confirmation is enabled, check your inbox before logging in.");
+        setMessage("Account created. If email confirmation is enabled, confirm your email before logging in.");
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -76,7 +89,7 @@ export function AuthForm({ mode }) {
         router.replace("/dashboard");
       }
     } catch (error) {
-      setErrorMessage(error.message || "Authentication failed.");
+      setErrorMessage(getFriendlyAuthMessage(error, "Authentication failed."));
     } finally {
       setSubmitting(false);
     }
@@ -110,6 +123,19 @@ export function AuthForm({ mode }) {
           <p className="mt-3 text-base leading-7 text-slate-600">{content.subtitle}</p>
 
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+            {mode === "register" ? (
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Display name</span>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
+                  placeholder="How should your workspace greet you?"
+                />
+              </label>
+            ) : null}
+
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-slate-700">Email</span>
               <input
@@ -121,6 +147,20 @@ export function AuthForm({ mode }) {
                 required
               />
             </label>
+
+            {mode === "register" ? (
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Workspace density</span>
+                <select
+                  value={dashboardDensity}
+                  onChange={(event) => setDashboardDensity(event.target.value)}
+                  className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
+                >
+                  <option value="comfortable">Comfortable</option>
+                  <option value="compact">Compact</option>
+                </select>
+              </label>
+            ) : null}
 
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-slate-700">Password</span>
