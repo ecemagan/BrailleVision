@@ -1,6 +1,6 @@
 /**
  * BrailleVision Word Add-in – HTTPS Development Server + API Proxy
- * Mixed content sorununu aşmak için /api/* isteklerini http://localhost:8000'e proxy eder.
+ * Proxies /api/* requests to http://localhost:8000 to avoid mixed-content issues.
  */
 const https = require('https');
 const http  = require('http');
@@ -52,8 +52,8 @@ async function startServer() {
     const devCerts = require('office-addin-dev-certs');
     certInfo = await devCerts.getHttpsServerOptions();
   } catch (e) {
-    console.error('\n❌ HTTPS sertifikası bulunamadı!');
-    console.error('Lütfen önce şunu çalıştırın: npm run install-certs\n');
+    console.error('\n❌ HTTPS certificate not found!');
+    console.error('Run this first: npm run install-certs\n');
     process.exit(1);
   }
 
@@ -67,7 +67,7 @@ async function startServer() {
   };
 
   const server = https.createServer(certInfo, (req, res) => {
-    // CORS – Word/Office WebView için zorunlu
+    // CORS – required for Word/Office WebView
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -81,7 +81,7 @@ async function startServer() {
     const parsedUrl = url.parse(req.url);
     const pathname  = parsedUrl.pathname;
 
-    // ── API Proxy: /api/* → http://localhost:8000 ──────────────────────────
+    // ── API proxy: /api/* → http://localhost:8000 ───────────────────────────
     if (pathname.startsWith('/api/')) {
       proxyRequest(req, res, {
         hostname: BACKEND_HOST,
@@ -105,7 +105,7 @@ async function startServer() {
       return;
     }
 
-    // ── Manifest ve ikonlar yerel statik, add-in UI ise Next üzerinden gelir ──
+    // ── Manifest and icons are served locally; the add-in UI comes from Next ──
     const filePath = path.normalize(path.join(__dirname, pathname));
 
     if (!filePath.startsWith(__dirname)) {
@@ -122,7 +122,7 @@ async function startServer() {
         fs.readFile(filePath, (readError, data) => {
           if (readError) {
             res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end(`404 - Dosya bulunamadı: ${pathname}`);
+            res.end(`404 - File not found: ${pathname}`);
             return;
           }
 
@@ -140,12 +140,12 @@ async function startServer() {
   });
 
   server.listen(PORT, () => {
-    console.log('\n✅ BrailleVision Word Add-in sunucusu başlatıldı!');
+    console.log('\n✅ BrailleVision Word Add-in server started!');
     console.log(`🌐 HTTPS:  https://localhost:${PORT}`);
     console.log(`🔀 Proxy:  /api/* → http://localhost:${BACKEND_PORT}`);
-    console.log(`🖥️  UI Proxy: /word → http://localhost:${NEXT_PORT}/word`);
-    console.log('\n📋 Word\'ü açın → Ekle → Eklentilerim → BrailleVision\n');
-    console.log('⚠️  Önce Next UI (port 3001) ve backend (port 8000) de çalışıyor olmalı!\n');
+    console.log(`🖥️  UI proxy: /word → http://localhost:${NEXT_PORT}/word`);
+    console.log('\n📋 Open Word → Insert → My Add-ins → BrailleVision\n');
+    console.log('⚠️  Make sure the Next UI (port 3001) and backend (port 8000) are running first!\n');
   });
 }
 

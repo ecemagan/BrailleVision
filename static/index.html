@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,27 +16,27 @@
 
     <div class="container">
         <header>
-            <h1>Braille <span class="highlight">Vision</span></h1>
-            <p>Matematiksel İfadeleri Nemeth Braille'a Çevir</p>
+            <h1>Braille<span class="highlight">Vision</span></h1>
+            <p>Convert mathematical expressions to Nemeth Braille</p>
         </header>
 
         <main class="glass-panel">
             <div class="tabs">
                 <button class="tab-btn active" data-target="upload-section">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                    PDF / Görsel 
+                    PDF / Image 
                 </button>
                 <button class="tab-btn" data-target="camera-section">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="4"/><path d="M22 8v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2.5l1.5-2h8l1.5 2H20a2 2 0 0 1 2 2z"/></svg>
-                    Kamera 
+                    Camera 
                 </button>
                 <button class="tab-btn" data-target="text-section">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                    Matematik Çevir
+                    Translate Math
                 </button>
                 <button class="tab-btn" data-target="alpha-braille-section">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="1.5"/><circle cx="15" cy="7" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>
-                    Metin → Braille
+                    Text → Braille
                 </button>
             </div>
 
@@ -44,7 +44,7 @@
                 <div class="drop-zone" id="drop-zone">
                     <div class="drop-zone-content">
                         <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                        <p>Dosyayı buraya sürükleyin veya <span>seçmek için tıklayın</span></p>
+                        <p>Drag a file here or <span>click to choose one</span></p>
                         <input type="file" id="file-input" accept=".pdf,image/*">
                     </div>
                 </div>
@@ -54,26 +54,26 @@
                 <div class="camera-container">
                     <video id="videoElement" autoplay playsinline></video>
                     <canvas id="canvasElement" style="display:none;"></canvas>
-                    <button class="btn capture-btn" id="capture-btn">Fotoğraf Çek</button>
+                    <button class="btn capture-btn" id="capture-btn">Take photo</button>
                 </div>
             </div>
 
             <div id="text-section" class="section">
                 <div class="text-container">
-                    <textarea id="math-text-input" placeholder="Matematiksel ifadenizi buraya yazın (ör: sqrt(x) + 1/2 = 5, log2(8) = 3, ln(x), sin(pi/2))"></textarea>
-                    <button class="btn translate-text-btn" id="translate-text-btn">Matematik Çevir</button>
+                    <textarea id="math-text-input" placeholder="Enter your mathematical expression here (e.g. sqrt(x) + 1/2 = 5, log2(8) = 3, ln(x), sin(pi/2))"></textarea>
+                    <button class="btn translate-text-btn" id="translate-text-btn">Translate Math</button>
                 </div>
             </div>
 
             <div id="alpha-braille-section" class="section">
                 <div class="text-container">
-                    <textarea id="alpha-text-input" placeholder="Braille alfabesine çevirmek istediğiniz metni buraya yazın..."></textarea>
-                    <button class="btn translate-text-btn" id="translate-alpha-btn">Braille Alfabesine Çevir</button>
+                    <textarea id="alpha-text-input" placeholder="Enter the text you want to convert to Braille here..."></textarea>
+                    <button class="btn translate-text-btn" id="translate-alpha-btn">Translate to Braille</button>
                     <div id="alpha-braille-result" class="alpha-result hidden">
-                        <div class="label">Braille Çıktısı</div>
+                        <div class="label">Braille output</div>
                         <div class="braille-output" id="alpha-braille-output"></div>
                         <div class="card-actions">
-                            <button class="export-btn" id="alpha-download-btn">📥 İndir (.txt)</button>
+                            <button class="export-btn" id="alpha-download-btn">📥 Download (.txt)</button>
                         </div>
                     </div>
                 </div>
@@ -81,11 +81,11 @@
 
             <div id="loading" class="loading-spinner hidden">
                 <div class="spinner"></div>
-                <p>İşleniyor...</p>
+                <p>Processing...</p>
             </div>
 
             <div id="results" class="results-container hidden">
-                <h2>Sonuçlar</h2>
+                <h2>Results</h2>
                 <div id="results-content"></div>
             </div>
         </main>

@@ -39,6 +39,7 @@ export function AuthForm({ mode }) {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const [showLoadingFallback, setShowLoadingFallback] = useState(false);
 
   function isEmailConfirmationError(error) {
     return (error?.message || error?.detail || "").toLowerCase().includes("email not confirmed");
@@ -80,6 +81,19 @@ export function AuthForm({ mode }) {
       router.replace("/dashboard");
     }
   }, [loading, mode, router, user]);
+
+  useEffect(() => {
+    if (!loading) {
+      setShowLoadingFallback(false);
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setShowLoadingFallback(true);
+    }, 2500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loading]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -150,7 +164,7 @@ export function AuthForm({ mode }) {
     }
   }
 
-  if (loading) {
+  if (loading && !showLoadingFallback) {
     return <LoadingCard title="Checking session..." description="Preparing the authentication flow." />;
   }
 
@@ -177,6 +191,12 @@ export function AuthForm({ mode }) {
           <h2 className="font-display mt-3 text-3xl font-bold text-slate-950">{content.title}</h2>
           <p className="mt-3 text-base leading-7 text-slate-600">{content.subtitle}</p>
 
+          {loading && showLoadingFallback ? (
+            <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Session check is taking longer than expected. You can continue signing in while the connection finishes in the background.
+            </p>
+          ) : null}
+
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             {mode === "register" ? (
               <label className="block">
@@ -185,6 +205,7 @@ export function AuthForm({ mode }) {
                   type="text"
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
+                  autoComplete="name"
                   className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
                   placeholder="How should your workspace greet you?"
                 />
@@ -197,6 +218,7 @@ export function AuthForm({ mode }) {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
                 className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
                 placeholder="you@example.com"
                 required
@@ -223,6 +245,7 @@ export function AuthForm({ mode }) {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
                 className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
                 placeholder="Minimum 6 characters"
                 minLength={6}

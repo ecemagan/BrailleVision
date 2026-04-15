@@ -1,12 +1,12 @@
 chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
         id: "translateMathToBraille",
-        title: "Matematik → Nemeth Braille'a Çevir",
+        title: "Translate math to Nemeth Braille",
         contexts: ["selection"]
     });
     chrome.contextMenus.create({
         id: "translateTextToBraille",
-        title: "Metin → Braille Alfabesine Çevir",
+        title: "Translate text to Braille",
         contexts: ["selection"]
     });
 });

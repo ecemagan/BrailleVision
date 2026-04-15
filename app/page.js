@@ -2,16 +2,16 @@ import Link from "next/link";
 
 const featureCards = [
   {
-    title: "Upload documents",
-    description: "Paste text directly or upload .txt, .pdf, and image files for a Braille-ready workflow.",
+    title: "Smart conversion workspace",
+    description: "Paste text directly or upload .txt, .pdf, and image files with readability suggestions before saving.",
   },
   {
-    title: "Save every result",
-    description: "Each conversion is saved to Supabase so every user sees only their own history.",
+    title: "Search, tags, and bulk actions",
+    description: "Filter by archive, favorite, date, source, and mode, then tag, export, or archive documents in bulk.",
   },
   {
-    title: "Download Braille output",
-    description: "Export saved Braille content as a .txt file from the dashboard in one click.",
+    title: "Personalized dashboard",
+    description: "Choose dark or light mode, theme accent, default view, and card density for your own Braille workspace.",
   },
 ];
 
@@ -28,7 +28,7 @@ export default function HomePage() {
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
             Sign in with Supabase Auth, upload text, documents, or photos, generate Braille output for text and math,
-            and keep a personal archive inside the dashboard.
+            and keep a searchable personal archive with stats, exports, and keyboard shortcuts inside the dashboard.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
