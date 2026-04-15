@@ -35,14 +35,51 @@ export function AuthForm({ mode }) {
   const [password, setPassword] = useState("");
   const [dashboardDensity, setDashboardDensity] = useState(DEFAULT_PROFILE_PREFERENCES.dashboardDensity);
   const [submitting, setSubmitting] = useState(false);
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+
+  function isEmailConfirmationError(error) {
+    return (error?.message || error?.detail || "").toLowerCase().includes("email not confirmed");
+  }
+
+  async function handleResendConfirmation() {
+    setResendingConfirmation(true);
+    setMessage("");
+    setErrorMessage("");
+
+    try {
+      if (!supabase) {
+        throw new Error(configError || "Supabase is not configured yet.");
+      }
+
+      if (!email.trim()) {
+        throw new Error("Enter your email first, then resend the confirmation message.");
+      }
+
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: email.trim(),
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      setMessage("Confirmation email sent again. Check your inbox and spam folder.");
+    } catch (error) {
+      setErrorMessage(getFriendlyAuthMessage(error, "We could not resend the confirmation email."));
+    } finally {
+      setResendingConfirmation(false);
+    }
+  }
 
   useEffect(() => {
-    if (!loading && user) {
+    if (mode === "login" && !loading && user) {
       router.replace("/dashboard");
     }
-  }, [loading, router, user]);
+  }, [loading, mode, router, user]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -57,7 +94,7 @@ export function AuthForm({ mode }) {
 
       // Supabase handles both email sign-up and password login directly from the browser.
       if (mode === "register") {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -75,7 +112,16 @@ export function AuthForm({ mode }) {
           throw error;
         }
 
-        setMessage("Account created. If email confirmation is enabled, confirm your email before logging in.");
+        setNeedsConfirmation(false);
+
+        if (data?.session) {
+          await supabase.auth.signOut();
+          setMessage("Account created. You can now log in with the same email and password.");
+          router.replace("/login");
+        } else {
+          setNeedsConfirmation(true);
+          setMessage("Account created. Please confirm your email before logging in.");
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -83,12 +129,21 @@ export function AuthForm({ mode }) {
         });
 
         if (error) {
+          if (isEmailConfirmationError(error)) {
+            setNeedsConfirmation(true);
+          }
+
           throw error;
         }
 
+        setNeedsConfirmation(false);
         router.replace("/dashboard");
       }
     } catch (error) {
+      if (isEmailConfirmationError(error)) {
+        setNeedsConfirmation(true);
+      }
+
       setErrorMessage(getFriendlyAuthMessage(error, "Authentication failed."));
     } finally {
       setSubmitting(false);
@@ -104,7 +159,7 @@ export function AuthForm({ mode }) {
   return (
     <main className="page-shell flex items-center justify-center">
       <div className="grid w-full max-w-5xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="surface-card hero-wash hidden rounded-[32px] p-10 lg:block">
+        <section className="surface-card hero-wash hidden rounded-4xl p-10 lg:block">
           <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">Braille Vision</p>
           <h1 className="font-display mt-4 text-5xl font-bold tracking-tight text-slate-950">
             Convert documents into Braille with a clear, secure workflow.
@@ -115,7 +170,7 @@ export function AuthForm({ mode }) {
           </p>
         </section>
 
-        <section className="surface-card rounded-[32px] p-8 md:p-10">
+        <section className="surface-card rounded-4xl p-8 md:p-10">
           <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">
             {mode === "login" ? "Welcome back" : "Get started"}
           </p>
@@ -191,6 +246,17 @@ export function AuthForm({ mode }) {
               <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 {message}
               </p>
+            ) : null}
+
+            {needsConfirmation ? (
+              <button
+                type="button"
+                onClick={handleResendConfirmation}
+                disabled={resendingConfirmation}
+                className="button-secondary w-full rounded-full px-5 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {resendingConfirmation ? "Resending..." : "Resend confirmation email"}
+              </button>
             ) : null}
 
             <button

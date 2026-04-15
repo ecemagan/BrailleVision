@@ -35,6 +35,14 @@ function truncateText(value, maxLength = 180) {
   return value.length > maxLength ? `${value.slice(0, maxLength).trim()}...` : value;
 }
 
+function arraysEqual(left, right) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((item, index) => item === right[index]);
+}
+
 function getSourceLabel(sourceType) {
   const labels = {
     manual: "Manual / TXT",
@@ -158,8 +166,14 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
 
   useEffect(() => {
     if (visibleDocuments.length === 0) {
-      setSelectedDocumentId(null);
-      setSelectedIds([]);
+      if (selectedDocumentId !== null) {
+        setSelectedDocumentId(null);
+      }
+
+      if (selectedIds.length > 0) {
+        setSelectedIds([]);
+      }
+
       return;
     }
 
@@ -167,8 +181,11 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
       setSelectedDocumentId(visibleDocuments[0].id);
     }
 
-    setSelectedIds((currentIds) => currentIds.filter((id) => visibleDocuments.some((document) => document.id === id)));
-  }, [visibleDocuments, selectedDocumentId]);
+    setSelectedIds((currentIds) => {
+      const nextIds = currentIds.filter((id) => visibleDocuments.some((document) => document.id === id));
+      return arraysEqual(currentIds, nextIds) ? currentIds : nextIds;
+    });
+  }, [visibleDocuments, selectedDocumentId, selectedIds.length]);
 
   useEffect(() => {
     if (!deleteTarget) {
