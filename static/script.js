@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
     alphaDownloadBtn.addEventListener('click', () => {
         const original = alphaTextInput.value.trim();
         const braille = alphaOutput.textContent;
-        const content = `Orijinal Metin:\n${original}\n\nBraille Çevirisi:\n${braille}\n`;
+        const content = `${braille}\\n`;
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');

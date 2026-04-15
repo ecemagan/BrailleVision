@@ -276,7 +276,7 @@ export function WordAddinWorkspace() {
       speakText: data.original,
       downloadName: "BrailleVision_Alfabesi.txt",
       insertTitle: "BrailleVision – Metin Çevirisi",
-      insertLines: [`Orijinal Metin:`, data.original, "", `Braille Çevirisi:`, data.braille],
+      insertLines: [data.braille],
       historyFileName: `word-selection-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
       conversionMode: "text",
     };

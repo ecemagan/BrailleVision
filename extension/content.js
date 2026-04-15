@@ -118,7 +118,7 @@ async function showAlphaPopup(text) {
         `;
 
         document.getElementById("alpha-export-btn").addEventListener('click', () => {
-            const content = `Orijinal Metin:\n${data.original}\n\nBraille Çevirisi:\n${data.braille}\n`;
+            const content = `${data.braille}\\n`;
             downloadTxt(content, 'Braille Vision_Alfabesi.txt');
         });
 

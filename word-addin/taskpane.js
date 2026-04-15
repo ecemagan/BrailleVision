@@ -182,7 +182,7 @@ function showAlphaResult(data) {
   area.appendChild(card);
 
   document.getElementById('alpha-insert-btn').addEventListener('click', () => {
-    const content = `Orijinal Metin:\n${data.original}\n\nBraille Çevirisi:\n${data.braille}`;
+    const content = data.braille;
     insertToDocument(content, 'BrailleVision – Metin Çevirisi');
   });
   document.getElementById('alpha-copy-btn').addEventListener('click', () => {
@@ -193,7 +193,7 @@ function showAlphaResult(data) {
   });
   document.getElementById('alpha-dl-btn').addEventListener('click', () => {
     downloadTxt(
-      `Orijinal Metin:\n${data.original}\n\nBraille Çevirisi:\n${data.braille}\n`,
+      data.braille + '\\n',
       'BrailleVision_Alfabesi.txt'
     );
   });

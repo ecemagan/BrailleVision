@@ -20,9 +20,11 @@ from braillevision.nemeth_translator import NemethTranslator
 from braillevision.parser import Parser
 from braillevision.text_braille_translator import TextBrailleTranslator
 
-# Set Gemini API key
-os.environ["GEMINI_API_KEY"] = "your key"
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+# Set Gemini API key (opsiyonel – yoksa metin çevirisi yerel mapping ile çalışır)
+_GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "your key")
+_GEMINI_AVAILABLE = bool(_GEMINI_API_KEY and _GEMINI_API_KEY != "your key")
+if _GEMINI_AVAILABLE:
+    genai.configure(api_key=_GEMINI_API_KEY)
 
 import re
 
@@ -204,6 +206,9 @@ async def process_image(image: UploadFile = File(...)):
     return JSONResponse(content={"results": results})
 
 def process_text_raw_with_gemini(text_input: str) -> list[dict]:
+    """Gemini ile metinden matematik denklemlerini çıkar. API yoksa [] döner."""
+    if not _GEMINI_AVAILABLE:
+        return []
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = f"""
@@ -253,24 +258,24 @@ class TextInput(BaseModel):
 
 @app.post("/api/process_text")
 async def process_text(data: TextInput):
+    """
+    Düz metni yerel harf-tablosu (TextBrailleTranslator) ile Braille'a çevirir.
+    Gemini API kullanılmaz — tamamen çevrimdışı çalışır.
+    """
     if not data.text or not data.text.strip():
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
-    
-    extracted_items = process_text_raw_with_gemini(data.text)
-    
-    if not extracted_items:
-        expressions = [line.strip() for line in data.text.split('\n') if line.strip()]
-        extracted_items = [{"math": exp, "explanation": "Seçilen metin"} for exp in expressions]
-    
-    results = []
-    for item in extracted_items:
-        exp = item.get("math", "")
-        res = translate_math_to_nemeth(exp)
-        if res.get("braille") or res.get("error"):
-            res["explanation"] = item.get("explanation", "")
-            results.append(res)
-            
-    return JSONResponse(content={"results": results})
+
+    translator = TextBrailleTranslator()
+    braille_output = translator.translate(data.text)
+    return JSONResponse(content={
+        "results": [{
+            "expression": data.text,
+            "braille": braille_output,
+            "explanation": "Metin Braille alfabesine çevrildi",
+            "error": None,
+        }],
+        "mode": "text"
+    })
 
 
 class TextBrailleInput(BaseModel):
