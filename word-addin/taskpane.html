@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BrailleVision</title>
-  <!-- Office.js – zorunlu, Word ile iletişim kurar -->
+  <!-- Office.js – required for Word communication -->
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -13,7 +13,7 @@
 </head>
 <body>
 
-  <!-- Arka plan efektleri -->
+  <!-- Background effects -->
   <div class="bg-blobs">
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
@@ -21,36 +21,36 @@
 
   <div class="wrapper">
 
-    <!-- ── Başlık ─────────────────────────────────── -->
+    <!-- ── Header ─────────────────────────────────── -->
     <header>
       <div class="logo">Braille<span>Vision</span></div>
-      <div class="tagline">Matematiksel İfadeleri &amp; Metinleri Braille'a Çevir</div>
+      <div class="tagline">Convert mathematical expressions and text to Braille</div>
     </header>
 
-    <!-- ── Backend durum göstergesi ──────────────── -->
+    <!-- ── Backend status indicator ──────────────── -->
     <div class="status-bar" id="status-bar">
       <div class="status-dot" id="status-dot"></div>
-      <span id="status-text">Backend bağlantısı kontrol ediliyor...</span>
+      <span id="status-text">Checking backend connection...</span>
     </div>
 
-    <!-- ── Eylem butonları ────────────────────────── -->
+    <!-- ── Action buttons ─────────────────────────── -->
     <div>
-      <div class="section-label">Seçili Metin</div>
+      <div class="section-label">Selected text</div>
       <div class="action-group">
 
-        <button class="action-btn primary" id="btn-alpha" title="Seçili metni Grade 1 Braille alfabesine çevirir">
+        <button class="action-btn primary" id="btn-alpha" title="Converts the selected text to Grade 1 Braille">
           <span class="icon">📄</span>
           <div class="action-btn-inner">
-            <span class="label">Metni Braille Alfabesine Çevir</span>
-            <span class="sublabel">Seçili metni → Grade 1 Braille</span>
+            <span class="label">Convert text to Braille</span>
+            <span class="sublabel">Selected text → Grade 1 Braille</span>
           </div>
         </button>
 
-        <button class="action-btn secondary" id="btn-math" title="Seçili matematiksel ifadeyi Nemeth Braille'a çevirir">
+        <button class="action-btn secondary" id="btn-math" title="Converts the selected mathematical expression to Nemeth Braille">
           <span class="icon">🔢</span>
           <div class="action-btn-inner">
-            <span class="label">Matematiği Nemeth Braille'a Çevir</span>
-            <span class="sublabel">sqrt, log, ln, sin, x^2, abs... destekler</span>
+            <span class="label">Convert math to Nemeth Braille</span>
+            <span class="sublabel">Supports sqrt, log, ln, sin, x^2, abs...</span>
           </div>
         </button>
 
@@ -58,27 +58,27 @@
     </div>
 
     <div>
-      <div class="section-label">Tüm Belge</div>
+      <div class="section-label">Entire document</div>
       <div class="action-group">
 
-        <button class="action-btn" id="btn-doc" title="Belgenin tüm metnini Braille alfabesine çevirir">
+        <button class="action-btn" id="btn-doc" title="Converts the entire document text to Braille">
           <span class="icon">📋</span>
           <div class="action-btn-inner">
-            <span class="label">Tüm Belgeyi Çevir</span>
-            <span class="sublabel">Tüm metin → Braille alfabesi</span>
+            <span class="label">Convert entire document</span>
+            <span class="sublabel">All text → Braille</span>
           </div>
         </button>
 
       </div>
     </div>
 
-    <!-- ── Yükleniyor ──────────────────────────────── -->
+    <!-- ── Loading ─────────────────────────────────── -->
     <div class="loading" id="loading">
       <div class="spinner"></div>
-      <span>Çevriliyor...</span>
+      <span>Converting...</span>
     </div>
 
-    <!-- ── Sonuç alanı ─────────────────────────────── -->
+    <!-- ── Results area ───────────────────────────── -->
     <div id="result-area"></div>
 
   </div><!-- /wrapper -->

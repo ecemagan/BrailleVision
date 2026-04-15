@@ -45,7 +45,7 @@ function speakText(text) {
 
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "tr-TR";
+  utterance.lang = "en-US";
   window.speechSynthesis.speak(utterance);
 }
 
@@ -70,7 +70,7 @@ async function insertIntoWordDocument(title, contentLines) {
       const paragraph = body.insertParagraph(line, window.Word.InsertLocation.end);
       paragraph.font.size = 10;
 
-      if (line.startsWith("Nemeth Braille:") || line.startsWith("Braille Çevirisi:")) {
+      if (line.startsWith("Nemeth Braille:") || line.startsWith("Braille Translation:")) {
         paragraph.font.size = 13;
         paragraph.font.bold = true;
         paragraph.font.color = "#1e1b4b";
@@ -83,7 +83,7 @@ async function insertIntoWordDocument(title, contentLines) {
 
 function ResultCard({ result, onCopy, onDownload, onInsert, onSpeak }) {
   return (
-    <article className="surface-card rounded-[28px] p-5 md:p-6">
+    <article className="surface-card rounded-3xl p-5 md:p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="accent-label text-xs font-semibold uppercase tracking-[0.22em]">{result.kind}</p>
@@ -124,19 +124,19 @@ function ResultCard({ result, onCopy, onDownload, onInsert, onSpeak }) {
       </div>
 
       <div className="mt-5 grid gap-4">
-        <div className="rounded-[24px] border border-slate-200 bg-white p-4">
+        <div className="rounded-3xl border border-slate-200 bg-white p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Source</p>
           <p className="mt-3 whitespace-pre-wrap text-base leading-7 text-slate-700">{result.sourceText}</p>
         </div>
 
         {result.explanation ? (
-          <div className="rounded-[24px] border border-violet-100 bg-violet-50/70 p-4">
+          <div className="rounded-3xl border border-violet-100 bg-violet-50/70 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">Explanation</p>
             <p className="mt-3 whitespace-pre-wrap text-base leading-7 text-slate-700">{result.explanation}</p>
           </div>
         ) : null}
 
-        <div className="rounded-[24px] bg-[radial-gradient(circle_at_top_right,rgba(216,180,254,0.42),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,238,255,0.92))] p-4 shadow-[0_24px_60px_rgba(124,58,237,0.12)]">
+        <div className="rounded-3xl bg-[radial-gradient(circle_at_top_right,rgba(216,180,254,0.42),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,238,255,0.92))] p-4 shadow-[0_24px_60px_rgba(124,58,237,0.12)]">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">Braille output</p>
           <p className="mt-3 break-all text-xl leading-8 text-slate-950">{result.brailleText}</p>
         </div>
@@ -275,8 +275,8 @@ export function WordAddinWorkspace() {
       explanation: "",
       speakText: data.original,
       downloadName: "BrailleVision_Alfabesi.txt",
-      insertTitle: "BrailleVision – Metin Çevirisi",
-      insertLines: [`Orijinal Metin:`, data.original, "", `Braille Çevirisi:`, data.braille],
+      insertTitle: "BrailleVision – Text Translation",
+      insertLines: [`Original Text:`, data.original, "", `Braille Translation:`, data.braille],
       historyFileName: `word-selection-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
       conversionMode: "text",
     };
@@ -313,11 +313,11 @@ export function WordAddinWorkspace() {
         explanation: item.explanation || "",
         speakText: item.explanation || item.expression,
         downloadName: `BrailleVision_Nemeth_${index + 1}.txt`,
-        insertTitle: "BrailleVision – Matematik Çevirisi",
+        insertTitle: "BrailleVision – Math Translation",
         insertLines: [
           item.expression,
           `Nemeth Braille: ${item.braille}`,
-          ...(item.explanation ? [`Açıklama: ${item.explanation}`] : []),
+          ...(item.explanation ? [`Explanation: ${item.explanation}`] : []),
         ],
         historyFileName: `word-math-${index + 1}-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
         conversionMode: "nemeth",
@@ -399,7 +399,7 @@ export function WordAddinWorkspace() {
 
       <main className="page-shell">
         <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-          <section className="surface-card hero-wash rounded-[32px] p-6 md:p-8 xl:sticky xl:top-6 xl:self-start">
+          <section className="surface-card hero-wash rounded-4xl p-6 md:p-8 xl:sticky xl:top-6 xl:self-start">
             <div className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700">
               Braille Vision for Word
             </div>
@@ -411,7 +411,7 @@ export function WordAddinWorkspace() {
               trigger a conversion, then insert or export the result.
             </p>
 
-            <div className={`mt-6 rounded-[24px] border px-4 py-4 text-sm font-semibold ${statusTone}`}>
+            <div className={`mt-6 rounded-3xl border px-4 py-4 text-sm font-semibold ${statusTone}`}>
               <p>
                 Word host: {officeReady ? "Connected" : officeScriptLoaded ? "Waiting for Word" : "Loading Office.js"}
               </p>
@@ -427,7 +427,7 @@ export function WordAddinWorkspace() {
                 type="button"
                 onClick={() => translateSelection("alpha")}
                 disabled={loading}
-                className="button-primary rounded-[24px] px-5 py-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
+                className="button-primary rounded-3xl px-5 py-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-100">Selected text</span>
                 <span className="font-display mt-2 block text-2xl font-bold text-white">Convert to Grade 1 Braille</span>
@@ -438,7 +438,7 @@ export function WordAddinWorkspace() {
                 type="button"
                 onClick={() => translateSelection("math")}
                 disabled={loading}
-                className="surface-soft rounded-[24px] px-5 py-4 text-left transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-60"
+                className="surface-soft rounded-3xl px-5 py-4 text-left transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">Math selection</span>
                 <span className="font-display mt-2 block text-2xl font-bold text-slate-950">Convert to Nemeth</span>
@@ -449,7 +449,7 @@ export function WordAddinWorkspace() {
                 type="button"
                 onClick={translateDocument}
                 disabled={loading}
-                className="surface-soft rounded-[24px] px-5 py-4 text-left transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-60"
+                className="surface-soft rounded-3xl px-5 py-4 text-left transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">Full document</span>
                 <span className="font-display mt-2 block text-2xl font-bold text-slate-950">Convert the entire document</span>
@@ -457,7 +457,7 @@ export function WordAddinWorkspace() {
               </button>
             </div>
 
-            <div className="mt-6 rounded-[24px] border border-slate-200 bg-white/90 p-4 text-sm leading-7 text-slate-600">
+            <div className="mt-6 rounded-3xl border border-slate-200 bg-white/90 p-4 text-sm leading-7 text-slate-600">
               Keep the Python backend and this Word gateway open while testing. Sideloading still uses the same manifest flow.
             </div>
           </section>
@@ -476,13 +476,13 @@ export function WordAddinWorkspace() {
             ) : null}
 
             {errorMessage ? (
-              <p className="rounded-[24px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">
+              <p className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">
                 {errorMessage}
               </p>
             ) : null}
 
             {actionMessage ? (
-              <p className="rounded-[24px] border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-700">
+              <p className="rounded-3xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-700">
                 {actionMessage}
               </p>
             ) : null}

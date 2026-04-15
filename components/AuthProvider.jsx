@@ -1,8 +1,10 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { getProfileRecord, upsertProfileRecord } from "@/lib/profiles";
+import { getProfileRecord, normalizeProfilePreferences, upsertProfileRecord } from "@/lib/profiles";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+
+const INITIAL_SESSION_TIMEOUT_MS = 3000;
 
 const AuthContext = createContext({
   supabase: null,
@@ -74,27 +76,37 @@ export function AuthProvider({ children }) {
 
         setSupabase(client);
 
-        const {
-          data: { session: initialSession },
-        } = await client.auth.getSession();
-
-        if (!ignore) {
-          setSession(initialSession);
-        }
-
-        await syncProfile(client, initialSession);
-
-        if (!ignore) {
-          setLoading(false);
-        }
-
         const listener = client.auth.onAuthStateChange(async (_event, nextSession) => {
+          if (ignore) {
+            return;
+          }
+
           setSession(nextSession);
-          await syncProfile(client, nextSession);
           setLoading(false);
+          void syncProfile(client, nextSession);
         });
 
         subscription = listener.data.subscription;
+
+        const initialSessionResult = await Promise.race([
+          client.auth.getSession(),
+          new Promise((resolve) => {
+            window.setTimeout(() => resolve({ data: { session: null }, timedOut: true }), INITIAL_SESSION_TIMEOUT_MS);
+          }),
+        ]);
+
+        const initialSession = initialSessionResult?.data?.session ?? null;
+
+        if (!ignore) {
+          setSession(initialSession);
+          setLoading(false);
+        }
+
+        if (initialSessionResult?.timedOut) {
+          console.warn("Initial session check timed out. The auth UI will stay usable while Supabase continues in the background.");
+        }
+
+        void syncProfile(client, initialSession);
       } catch (error) {
         if (!ignore) {
           setConfigError(error.message);
@@ -110,6 +122,13 @@ export function AuthProvider({ children }) {
       subscription?.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const preferences = normalizeProfilePreferences(profile?.preferences);
+    document.documentElement.dataset.theme = preferences.themeMode;
+    document.documentElement.dataset.accent = preferences.themeAccent;
+    document.documentElement.dataset.density = preferences.dashboardDensity;
+  }, [profile]);
 
   const value = {
     supabase,

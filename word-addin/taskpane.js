@@ -1,12 +1,12 @@
 /**
  * BrailleVision Word Add-in – Task Pane Logic
- * API çağrıları HTTPS proxy üzerinden gider (mixed content sorununu aşar).
+ * API requests go through the HTTPS proxy to avoid mixed-content issues.
  */
 
-// Boş bırak = same-origin (https://localhost:3000) → proxy → http://localhost:8000
+// Leave empty = same-origin (https://localhost:3000) → proxy → http://localhost:8000
 const BACKEND = '';
 
-// ─── Office hazır olunca başlat ───────────────────────────────────────────────
+// ─── Start when Office is ready ──────────────────────────────────────────────
 Office.onReady((info) => {
   if (info.host === Office.HostType.Word) {
     initUI();
@@ -14,14 +14,14 @@ Office.onReady((info) => {
   }
 });
 
-// ─── UI başlat ────────────────────────────────────────────────────────────────
+// ─── Initialize UI ────────────────────────────────────────────────────────────
 function initUI() {
   document.getElementById('btn-alpha').addEventListener('click', () => translateSelected('alpha'));
   document.getElementById('btn-math').addEventListener('click',  () => translateSelected('math'));
   document.getElementById('btn-doc').addEventListener('click',   () => translateFullDoc());
 }
 
-// ─── Backend bağlantı kontrolü ────────────────────────────────────────────────
+// ─── Check backend connectivity ──────────────────────────────────────────────
 async function checkBackend() {
   const dot  = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
@@ -29,29 +29,29 @@ async function checkBackend() {
     const r = await fetch(`${BACKEND}/`, { signal: AbortSignal.timeout(3000) });
     if (r.ok || r.status < 500) {
       dot.className  = 'status-dot online';
-      text.textContent = 'Backend bağlı – Çevirmeye hazır ✓';
+      text.textContent = 'Backend connected — ready to convert ✓';
     } else {
       throw new Error('bad status');
     }
   } catch {
     dot.className  = 'status-dot offline';
-    text.textContent = 'Backend bağlanamadı! python app.py çalışıyor mu?';
+    text.textContent = 'Backend could not connect! Is `python app.py` running?';
   }
 }
 
-// ─── Seçili metni çevir ───────────────────────────────────────────────────────
+// ─── Convert selected text ───────────────────────────────────────────────────
 async function translateSelected(mode) {
   let selectedText = '';
 
   try {
     selectedText = await getSelectionText();
   } catch (err) {
-    showError('Word\'den metin alınamadı: ' + err.message);
+    showError('Could not read text from Word: ' + err.message);
     return;
   }
 
   if (!selectedText || !selectedText.trim()) {
-    showError('Lütfen önce Word belgesinde bir metin seçin.');
+    showError('Please select text in the Word document first.');
     return;
   }
 
@@ -62,25 +62,25 @@ async function translateSelected(mode) {
   }
 }
 
-// ─── Tüm belgeyi çevir ────────────────────────────────────────────────────────
+// ─── Convert the entire document ──────────────────────────────────────────────
 async function translateFullDoc() {
   let docText = '';
   try {
     docText = await getDocumentText();
   } catch (err) {
-    showError('Belge metni alınamadı: ' + err.message);
+    showError('Could not read the document text: ' + err.message);
     return;
   }
 
   if (!docText || !docText.trim()) {
-    showError('Belge boş görünüyor.');
+    showError('The document appears to be empty.');
     return;
   }
 
   await callBrailleAlpha(docText.trim());
 }
 
-// ─── Office.js metin okuma ────────────────────────────────────────────────────
+// ─── Office.js text reading ───────────────────────────────────────────────────
 function getSelectionText() {
   return Word.run(async (context) => {
     const selection = context.document.getSelection();
@@ -99,7 +99,7 @@ function getDocumentText() {
   });
 }
 
-// ─── API: Metin → Braille Alfabesi ───────────────────────────────────────────
+// ─── API: Text → Braille alphabet ────────────────────────────────────────────
 async function callBrailleAlpha(text) {
   setLoading(true);
   clearResult();
@@ -120,13 +120,13 @@ async function callBrailleAlpha(text) {
     showAlphaResult(data);
 
   } catch (err) {
-    showError('Çeviri hatası: ' + err.message);
+    showError('Translation error: ' + err.message);
   } finally {
     setLoading(false);
   }
 }
 
-// ─── API: Matematik → Nemeth Braille ─────────────────────────────────────────
+// ─── API: Math → Nemeth Braille ──────────────────────────────────────────────
 async function callNemethMath(text) {
   setLoading(true);
   clearResult();
@@ -147,13 +147,13 @@ async function callNemethMath(text) {
     showMathResults(data.results || []);
 
   } catch (err) {
-    showError('Çeviri hatası: ' + err.message);
+    showError('Translation error: ' + err.message);
   } finally {
     setLoading(false);
   }
 }
 
-// ─── Sonuç gösterimi: Braille Alfabesi ───────────────────────────────────────
+// ─── Result display: Braille alphabet ────────────────────────────────────────
 function showAlphaResult(data) {
   const area = document.getElementById('result-area');
   const card = document.createElement('div');
@@ -165,25 +165,25 @@ function showAlphaResult(data) {
 
   card.innerHTML = `
     <div>
-      <div class="result-label">Orijinal Metin</div>
+      <div class="result-label">Original text</div>
       <div class="result-original">${escapeHtml(preview)}</div>
     </div>
     <div>
-      <div class="result-label">Braille Çevirisi</div>
+      <div class="result-label">Braille translation</div>
       <div class="result-braille" id="alpha-braille-out">${data.braille}</div>
     </div>
     <div class="result-actions">
-      <button class="mini-btn" id="alpha-insert-btn">📄 Belgeye Ekle</button>
-      <button class="mini-btn" id="alpha-copy-btn">📋 Kopyala</button>
-      <button class="mini-btn" id="alpha-tts-btn">🔊 Oku</button>
-      <button class="mini-btn" id="alpha-dl-btn">📥 İndir</button>
+      <button class="mini-btn" id="alpha-insert-btn">📄 Insert into document</button>
+      <button class="mini-btn" id="alpha-copy-btn">📋 Copy</button>
+      <button class="mini-btn" id="alpha-tts-btn">🔊 Read aloud</button>
+      <button class="mini-btn" id="alpha-dl-btn">📥 Download</button>
     </div>
   `;
   area.appendChild(card);
 
   document.getElementById('alpha-insert-btn').addEventListener('click', () => {
-    const content = `Orijinal Metin:\n${data.original}\n\nBraille Çevirisi:\n${data.braille}`;
-    insertToDocument(content, 'BrailleVision – Metin Çevirisi');
+    const content = `Original Text:\n${data.original}\n\nBraille Translation:\n${data.braille}`;
+    insertToDocument(content, 'BrailleVision – Text Translation');
   });
   document.getElementById('alpha-copy-btn').addEventListener('click', () => {
     copyToClipboard(data.braille);
@@ -193,21 +193,21 @@ function showAlphaResult(data) {
   });
   document.getElementById('alpha-dl-btn').addEventListener('click', () => {
     downloadTxt(
-      `Orijinal Metin:\n${data.original}\n\nBraille Çevirisi:\n${data.braille}\n`,
-      'BrailleVision_Alfabesi.txt'
+      `Original Text:\n${data.original}\n\nBraille Translation:\n${data.braille}\n`,
+      'BrailleVision_Alphabet.txt'
     );
   });
 }
 
 
-// ─── Sonuç gösterimi: Nemeth Matematik ───────────────────────────────────────
+// ─── Result display: Nemeth math ─────────────────────────────────────────────
 function showMathResults(results) {
   const area = document.getElementById('result-area');
 
   if (!results.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'Matematiksel ifade bulunamadı. Gemini AI, matematiksel bir yapı tespit edemedi.';
+    empty.textContent = 'No mathematical expression was found. Gemini AI could not detect a mathematical structure.';
     area.appendChild(empty);
     return;
   }
@@ -218,7 +218,7 @@ function showMathResults(results) {
 
     if (res.error) {
       card.innerHTML = `
-        <div class="result-label">İfade</div>
+        <div class="result-label">Expression</div>
         <div class="result-original">${escapeHtml(res.expression)}</div>
         <div class="error-msg">⚠️ ${escapeHtml(res.error)}</div>
       `;
@@ -226,12 +226,12 @@ function showMathResults(results) {
       const expSafe = escapeHtml(res.explanation || '');
       card.innerHTML = `
         <div>
-          <div class="result-label">Matematiksel İfade</div>
+          <div class="result-label">Mathematical expression</div>
           <div class="result-original">${escapeHtml(res.expression)}</div>
         </div>
         ${res.explanation ? `
         <div>
-          <div class="result-label">AI Açıklaması</div>
+          <div class="result-label">AI explanation</div>
           <div class="result-explanation">${expSafe}</div>
         </div>` : ''}
         <div>
@@ -239,10 +239,10 @@ function showMathResults(results) {
           <div class="result-braille">${res.braille}</div>
         </div>
         <div class="result-actions">
-          <button class="mini-btn" data-action="insert" data-idx="${idx}">📄 Belgeye Ekle</button>
-          <button class="mini-btn" data-action="copy" data-idx="${idx}">📋 Kopyala</button>
-          ${res.explanation ? `<button class="mini-btn" data-action="tts" data-idx="${idx}">🔊 Oku</button>` : ''}
-          <button class="mini-btn" data-action="dl" data-idx="${idx}">📥 İndir</button>
+          <button class="mini-btn" data-action="insert" data-idx="${idx}">📄 Insert into document</button>
+          <button class="mini-btn" data-action="copy" data-idx="${idx}">📋 Copy</button>
+          ${res.explanation ? `<button class="mini-btn" data-action="tts" data-idx="${idx}">🔊 Read aloud</button>` : ''}
+          <button class="mini-btn" data-action="dl" data-idx="${idx}">📥 Download</button>
         </div>
       `;
     }
@@ -256,12 +256,12 @@ function showMathResults(results) {
         if (action === 'copy')   copyToClipboard(res.braille);
         if (action === 'tts')    speak(res.explanation);
         if (action === 'insert') {
-          const content = `${res.expression}\nNemeth Braille: ${res.braille}${res.explanation ? '\nAçıklama: ' + res.explanation : ''}`;
-          insertToDocument(content, 'BrailleVision – Matematik Çevirisi');
+          const content = `${res.expression}\nNemeth Braille: ${res.braille}${res.explanation ? '\nExplanation: ' + res.explanation : ''}`;
+          insertToDocument(content, 'BrailleVision – Math Translation');
         }
         if (action === 'dl') {
           downloadTxt(
-            `Matematiksel İfade:\n${res.expression}\n\nNemeth Braille:\n${res.braille}\n`,
+            `Mathematical Expression:\n${res.expression}\n\nNemeth Braille:\n${res.braille}\n`,
             `BrailleVision_Nemeth_${idx + 1}.txt`
           );
         }
@@ -270,7 +270,7 @@ function showMathResults(results) {
   });
 }
 
-// ─── Yardımcı fonksiyonlar ────────────────────────────────────────────────────
+// ─── Helper functions ────────────────────────────────────────────────────────
 function setLoading(on) {
   document.getElementById('loading').classList.toggle('visible', on);
   ['btn-alpha', 'btn-math', 'btn-doc'].forEach(id => {
@@ -291,7 +291,7 @@ function speak(text) {
   if (!text) return;
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(text);
-  utt.lang = 'tr-TR';
+  utt.lang = 'en-US';
   window.speechSynthesis.speak(utt);
 }
 
@@ -307,28 +307,28 @@ function copyToClipboard(text) {
   });
 }
 
-// ─── Word belgesine Braille çıktısı ekle ─────────────────────────────────────
+// ─── Insert Braille output into the Word document ────────────────────────────
 function insertToDocument(content, title) {
   Word.run(async (context) => {
     const body = context.document.body;
 
-    // Ayraç satırı
+    // Divider line
     const hr = body.insertParagraph('─'.repeat(40), Word.InsertLocation.end);
     hr.font.color = '#7c3aed';
     hr.font.size  = 9;
 
-    // Başlık
+    // Heading
     const heading = body.insertParagraph(title, Word.InsertLocation.end);
     heading.font.bold  = true;
     heading.font.color = '#5b21b6';
     heading.font.size  = 11;
 
-    // İçerik satırları
+    // Content lines
     content.split('\n').forEach(line => {
       const p = body.insertParagraph(line, Word.InsertLocation.end);
       p.font.size = 10;
-      // Braille satırı büyük fontla göster
-      if (line.startsWith('Nemeth Braille:') || line.startsWith('Braille Çevirisi:')) {
+      // Display Braille line in a larger font
+      if (line.startsWith('Nemeth Braille:') || line.startsWith('Braille Translation:')) {
         p.font.size  = 13;
         p.font.bold  = true;
         p.font.color = '#1e1b4b';
@@ -337,18 +337,18 @@ function insertToDocument(content, title) {
 
     await context.sync();
 
-    // Kullanıcıya bildir
+    // Notify the user
     const btn = document.activeElement;
     if (btn) {
       const orig = btn.textContent;
-      btn.textContent = '✅ Eklendi!';
+      btn.textContent = '✅ Added!';
       setTimeout(() => { btn.textContent = orig; }, 2000);
     }
-  }).catch(err => showError('Belgeye eklenemedi: ' + err.message));
+  }).catch(err => showError('Could not insert into the document: ' + err.message));
 }
 
 function downloadTxt(content, filename) {
-  // Word WebView'de blob download çalışmayabilir — proxy üzerinden dene
+  // Blob downloads may not work in Word WebView — try the proxy route
   try {
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
@@ -361,7 +361,7 @@ function downloadTxt(content, filename) {
     URL.revokeObjectURL(url);
   } catch (e) {
     copyToClipboard(content);
-    showError('İndirme desteklenmiyor. İçerik panoya kopyalandı — yapıştırabilirsiniz.');
+    showError('Download is not supported. The content was copied to the clipboard — you can paste it.');
   }
 }
 

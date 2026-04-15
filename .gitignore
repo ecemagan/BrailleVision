@@ -30,6 +30,9 @@ htmlcov/
 # Generated project files
 output.txt
 pipeline-test-report.md
+.tmp/
+.tmp/Library/
+.tmp/.npm/
 
 # Node/JS
 node_modules/

@@ -3,12 +3,12 @@ import { AuthProvider } from "@/components/AuthProvider";
 
 export const metadata = {
   title: "Braille Vision Dashboard",
-  description: "Upload text or files and save Braille conversions with Supabase.",
+  description: "Convert, tag, filter, export, and manage Braille documents with personalized dashboard preferences.",
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="tr" data-theme="light" data-accent="sunrise" data-density="comfortable">
       <body>
         <AuthProvider>{children}</AuthProvider>
       </body>
