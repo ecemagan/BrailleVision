@@ -26,34 +26,41 @@ export function AuthProvider({ children }) {
     let subscription;
 
     async function syncProfile(client, nextSession) {
-      if (!nextSession?.user) {
+      try {
+        if (!nextSession?.user) {
+          if (!ignore) {
+            setProfile(null);
+          }
+          return;
+        }
+
+        const nextUser = nextSession.user;
+        const profileRecord =
+          (await getProfileRecord(client, nextUser.id).catch(() => null)) ??
+          null;
+
+        if (!profileRecord) {
+          await upsertProfileRecord({
+            supabase: client,
+            userId: nextUser.id,
+            email: nextUser.email,
+            displayName: nextUser.user_metadata?.display_name,
+            preferences: nextUser.user_metadata?.preferences,
+          });
+        }
+
+        const freshProfile =
+          (await getProfileRecord(client, nextUser.id).catch(() => null)) ??
+          null;
+
+        if (!ignore) {
+          setProfile(freshProfile);
+        }
+      } catch (error) {
+        console.warn("Profile sync skipped:", error);
         if (!ignore) {
           setProfile(null);
         }
-        return;
-      }
-
-      const nextUser = nextSession.user;
-      const profileRecord =
-        (await getProfileRecord(client, nextUser.id).catch(() => null)) ??
-        null;
-
-      if (!profileRecord) {
-        await upsertProfileRecord({
-          supabase: client,
-          userId: nextUser.id,
-          email: nextUser.email,
-          displayName: nextUser.user_metadata?.display_name,
-          preferences: nextUser.user_metadata?.preferences,
-        });
-      }
-
-      const freshProfile =
-        (await getProfileRecord(client, nextUser.id).catch(() => null)) ??
-        null;
-
-      if (!ignore) {
-        setProfile(freshProfile);
       }
     }
 
@@ -89,14 +96,8 @@ export function AuthProvider({ children }) {
 
         subscription = listener.data.subscription;
       } catch (error) {
-        const isSchemaError = (error.message || "").toLowerCase().includes("profiles");
-
         if (!ignore) {
-          setConfigError(
-            isSchemaError
-              ? "Supabase schema is incomplete. Re-run supabase/documents.sql in the SQL editor, then refresh the page."
-              : error.message,
-          );
+          setConfigError(error.message);
           setLoading(false);
         }
       }
@@ -126,7 +127,7 @@ export function AuthProvider({ children }) {
         const nextProfile = await getProfileRecord(supabase, session.user.id);
         setProfile(nextProfile);
       } catch {
-        setConfigError("Profile data could not be refreshed. Re-run supabase/documents.sql and try again.");
+        console.warn("Profile refresh skipped.");
       }
     },
   };
