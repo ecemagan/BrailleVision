@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import sys
 from pathlib import Path
 import google.generativeai as genai
+import unicodedata
 
 # Setup paths for braillevision
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -259,23 +260,33 @@ class TextInput(BaseModel):
 @app.post("/api/process_text")
 async def process_text(data: TextInput):
     """
-    Düz metni yerel harf-tablosu (TextBrailleTranslator) ile Braille'a çevirir.
-    Gemini API kullanılmaz — tamamen çevrimdışı çalışır.
+    Kullanıcının girdiği matematiksel ifadeleri çevirir (Nemeth).
+    Eğer Gemini API kapalıysa, doğrudan girdi üzerinden (satır satır) düz matematik algoritmasını (Nemeth) dener.
     """
     if not data.text or not data.text.strip():
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
 
-    translator = TextBrailleTranslator()
-    braille_output = translator.translate(data.text)
-    return JSONResponse(content={
-        "results": [{
-            "expression": data.text,
-            "braille": braille_output,
-            "explanation": "Metin Braille alfabesine çevrildi",
-            "error": None,
-        }],
-        "mode": "text"
-    })
+    # Normalize mathematical italic letters and diacritics into standard characters
+    normalized_text = unicodedata.normalize('NFKC', data.text)
+
+    # 1. Gemini ile çıkarmayı dene (API key varsa çalışır, yoksa boş [] döner)
+    extracted_items = process_text_raw_with_gemini(normalized_text)
+
+    # 2. Eğer API kapalıysa veya bir şey çıkaramadıysa, manuel fallback yap:
+    if not extracted_items:
+        expressions = [line.strip() for line in normalized_text.split('\n') if line.strip()]
+        extracted_items = [{"math": exp, "explanation": "Doğrudan çeviri (API Kapalı)"} for exp in expressions]
+
+    results = []
+    for item in extracted_items:
+        exp = item.get("math", "")
+        # translate_math_to_nemeth, Lexer -> Parser -> NemethTranslator zincirini API'siz (%100 yerel) kullanır
+        res = translate_math_to_nemeth(exp)
+        if res.get("braille") or res.get("error"):
+            res["explanation"] = item.get("explanation", "")
+            results.append(res)
+            
+    return JSONResponse(content={"results": results})
 
 
 class TextBrailleInput(BaseModel):
@@ -287,8 +298,10 @@ async def translate_braille_text(data: TextBrailleInput):
     if not data.text or not data.text.strip():
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
     
+    normalized_text = unicodedata.normalize('NFKC', data.text)
+    
     translator = TextBrailleTranslator()
-    braille_output = translator.translate(data.text)
+    braille_output = translator.translate(normalized_text)
     
     return JSONResponse(content={
         "original": data.text,

@@ -65,10 +65,10 @@ class Lexer:
                     op_val = "*"
                 elif op_val == ":":
                     op_val = "/"
-                # Collapse '' -> double prime, ' -> single prime
-                elif op_val == "'":
+                # Collapse typographic primes into single standard prime symbol
+                elif op_val in {"'", "′", "’", "‘"}:
                     prime_count = 1
-                    while not self._is_at_end() and self._peek() == "'":
+                    while not self._is_at_end() and self._peek() in {"'", "′", "’", "‘"}:
                         prime_count += 1
                         self._advance()
                     tokens.append(Token(TokenType.OPERATOR, "'" * prime_count))
@@ -109,7 +109,7 @@ class Lexer:
 
     @staticmethod
     def _is_operator(character: str) -> bool:
-        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")", ".", "·", ":", ",", "|", "~", "≤", "≥", "<", ">", "∪", "∩", "∈", "∉", "⊂", "⊃", "⇔", "⇐", "⇒", "≡", "\\", "'", "∫", "∂"}
+        return character in {"+", "-", "*", "/", "=", "^", "_", "(", ")", ".", "·", ":", ",", "|", "~", "≤", "≥", "<", ">", "∪", "∩", "∈", "∉", "⊂", "⊃", "⇔", "⇐", "⇒", "≡", "\\", "'", "∫", "∂", "&", "′", "’", "‘"}
 
     def _peek(self) -> str:
         return self.source[self.position]

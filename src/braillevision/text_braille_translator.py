@@ -24,7 +24,11 @@ class TextBrailleTranslator:
 
     TURKISH_MAP: dict[str, str] = {
         "ç": "⠡", "ğ": "⠣", "ı": "⠔", "ö": "⠪", "ş": "⠩", "ü": "⠳",
+        "i̇": "⠊",  # Python lowercases 'İ' to 'i̇'
+        "ı": "⠔",   # Keep 'ı' just in case
+
         "â": "⠁", "î": "⠊", "û": "⠥",  # long vowels
+        "é": "⠑", "è": "⠑", "ë": "⠑", "ê": "⠑", # fallback variations of e
     }
 
     DIGIT_MAP: dict[str, str] = {
@@ -36,9 +40,21 @@ class TextBrailleTranslator:
         ".": "⠲", ",": "⠂", "?": "⠦", "!": "⠖", ":": "⠒",
         ";": "⠆", "-": "⠤", "–": "⠤⠤", "\"": "⠐⠦",
         "'": "⠄", "(": "⠐⠣", ")": "⠐⠜",
+        "[": "⠨⠣", "]": "⠨⠜", "{": "⠸⠣", "}": "⠸⠜",
+        "“": "⠦", "”": "⠴", "‘": "⠦", "’": "⠴",
+        "+": "⠬", "=": "⠨⠅", "<": "⠐⠅", ">": "⠈⠅", "×": "⠈⠡",
+        "∫": "⠮", "∂": "⠨⠙", "∅": "⠈⠚", "∪": "⠨⠩", "∩": "⠨⠫",
+        "∈": "⠈⠑", "∉": "⠈⠠⠑", "⊂": "⠘⠣", "⊃": "⠘⠜",
+        "⇔": "⠳⠪", "⇐": "⠳⠣", "⇒": "⠳⠕", "≡": "⠸⠅", "\\": "⠸⠡",
+        "@": "⠈⠁", "#": "⠼", "%": "⠨⠴", "&": "⠠⠯",  # Add basic web symbols
+        "¸": "", "¨": "", "˘": "",  # OCR ile parçalanmış hatalı harf şapkaları (ç, ü, ğ işaretleri) yok sayılır
         " ": " ",   # space stays as space
         "\n": "\n", # newline preserved
+        "\r": "",   # carriage return ignored safely
         "\t": " ",
+        "\v": "\n", # Vertical tab (Word Shift+Enter)
+        "\f": "\n", # Form feed (Word Page Break)
+        "\x07": " ", # Table cell separator in Word mapping to space
     }
 
     def translate(self, text: str) -> str:
@@ -55,8 +71,11 @@ class TextBrailleTranslator:
                 lower = char.lower()
                 is_upper = char.isupper()
 
-                # Check Turkish characters first
-                if lower in self.TURKISH_MAP:
+                if char == "İ":
+                    braille = "⠊"
+                elif char == "I":
+                    braille = "⠔"
+                elif lower in self.TURKISH_MAP:
                     braille = self.TURKISH_MAP[lower]
                 else:
                     braille = self.LETTER_MAP.get(lower, char)

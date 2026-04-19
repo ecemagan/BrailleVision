@@ -39,9 +39,16 @@ class Parser:
 
     def parse(self) -> ExpressionNode:
         """Parses all tokens into an AST."""
-        expression = self._parse_equality()
+        expression = self._parse_comma_sequence()
         self._consume(TokenType.EOF, "Unexpected trailing tokens.")
         return expression
+
+    def _parse_comma_sequence(self) -> ExpressionNode:
+        node = self._parse_equality()
+        while self._match_operator(","):
+            right = self._parse_equality()
+            node = BinaryOpNode(",", node, right)
+        return node
 
     def _parse_equality(self) -> ExpressionNode:
         node = self._parse_additive()
@@ -64,7 +71,7 @@ class Parser:
 
         while (self._match_operator("+") or self._match_operator("-") or 
                self._match_operator("∪") or self._match_operator("∩") or 
-               self._match_operator("\\")):
+               self._match_operator("\\") or self._match_operator("&")):
             operator = self._previous().value
             right = self._parse_multiplicative()
             node = BinaryOpNode(operator, node, right)
@@ -161,13 +168,8 @@ class Parser:
             if self._peek().is_operator("'") or self._peek().is_operator("''") or self._peek().is_operator("'''"):
                 prime_tok = self._advance()
                 order = len(prime_tok.value)  # number of quotes
-                # Optional argument in parens: f'(x)
-                if self._peek().is_operator("("):
-                    self._advance()  # consume (
-                    var_tok = self._consume(TokenType.VARIABLE, "Expected variable in prime derivative.")
-                    self._consume_operator(")", "Expected ')' after prime derivative variable.")
-                    return DerivativeNode(node, var_tok.value, order=order, prime=True)
-                return DerivativeNode(node, "x", order=order, prime=True)
+                deriv_node = DerivativeNode(node, "x", order=order, prime=True)
+                return deriv_node
             return node
 
         # Absolute value: |expr|
@@ -177,22 +179,29 @@ class Parser:
             return AbsoluteValueNode(inner)
 
         if self._match_operator("("):
-            inner = self._parse_equality()
+            inner = self._parse_comma_sequence()
             self._consume_operator(")", "Expected ')' after expression.")
             return self._mark_explicit_grouping(inner)
+
+        if self._match_operator("∫"):
+            return ConstantNode("∫")
+        if self._match_operator("∂"):
+            return ConstantNode("∂")
 
         raise ValueError(f"Expected number, function, variable, or parenthesized expression. Found token: {self._peek()}")
 
     def _parse_function_argument(self) -> ExpressionNode:
         if self._match_operator("("):
-            inner = self._parse_equality()
+            inner = self._parse_comma_sequence()
             self._consume_operator(")", "Expected ')' after function argument.")
             return self._mark_explicit_grouping(inner)
 
         return self._parse_unary()
 
-    def _parse_integral(self, is_partial: bool = False) -> "IntegralNode":
+    def _parse_integral(self, is_partial: bool = False) -> ExpressionNode:
         """Parse int(integrand, var) or int(integrand, var, lower, upper)."""
+        if not self._check_operator("("):
+            return ConstantNode("∫")
         self._consume_operator("(", "Expected '(' after 'int'.")
         integrand = self._parse_equality()
         self._consume_operator(",", "Expected ',' after integrand in int().")
@@ -210,8 +219,10 @@ class Parser:
         self._consume_operator(")", "Expected ')' to close int().")
         return IntegralNode(integrand, variable, lower, upper)
 
-    def _parse_derivative(self, is_partial: bool = False) -> "DerivativeNode":
+    def _parse_derivative(self, is_partial: bool = False) -> ExpressionNode:
         """Parse diff(expr, var) or diff(expr, var, order)."""
+        if not self._check_operator("("):
+            return ConstantNode("∂") if is_partial else VariableNode(self._previous().value)
         self._consume_operator("(", "Expected '(' after 'diff'.")
         expression = self._parse_equality()
         self._consume_operator(",", "Expected ',' after expression in diff().")
@@ -240,6 +251,9 @@ class Parser:
         return (
             next_token.token_type in {TokenType.NUMBER, TokenType.FUNCTION, TokenType.VARIABLE}
             or next_token.is_operator("(")
+            or next_token.is_operator("∫")
+            or next_token.is_operator("∂")
+            or next_token.is_operator("|")
         )
 
     def _match(self, token_type: TokenType) -> bool:
