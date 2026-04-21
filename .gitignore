@@ -1,5 +1,5 @@
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,34 +7,51 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Node / JavaScript
+node_modules/
+word-addin/node_modules/
+dist/
+build/
+.npm-cache/
+
 # Next.js
 .next/
 out/
-
-# Node
-node_modules/
-dist/
-build/
+.vercel/
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
 .venv/
 venv/
 env/
-.env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.nox/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.pyre/
+.ipynb_checkpoints/
 pip-log.txt
 pip-delete-this-directory.txt
+*.egg
+*.egg-info/
+.eggs/
 
 # Environment variables
 .env
-.env*.local
-.env.development
-.env.test
-.env.production
+.env.*
+!.env.example
+!.env.sample
 
-# Mac OS
+# macOS
 .DS_Store
 
 # Editor directories and files
@@ -43,14 +60,16 @@ pip-delete-this-directory.txt
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
-.idea
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 
-# Output / logs specific to project
+# Office add-in certificates
+.office-addin-dev-certs/
+
+# Project outputs
 /output.txt
 /pipeline-test-report.md
-*.egg-info/
