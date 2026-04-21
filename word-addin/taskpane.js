@@ -86,7 +86,9 @@ function getSelectionText() {
     const selection = context.document.getSelection();
     selection.load('text');
     await context.sync();
-    return selection.text;
+    // Word belgelerinde paragraflar genellikle \r (carriage return) ile ayrılır.
+    // Backend'de bu karakterler silinmesin diye \n'ye (newline) dönüştürüyoruz.
+    return selection.text.replace(/\r\n|\r/g, '\n');
   });
 }
 
@@ -95,7 +97,7 @@ function getDocumentText() {
     const body = context.document.body;
     body.load('text');
     await context.sync();
-    return body.text;
+    return body.text.replace(/\r\n|\r/g, '\n');
   });
 }
 
@@ -312,28 +314,58 @@ function insertToDocument(content, title) {
   Word.run(async (context) => {
     const body = context.document.body;
 
-    // Ayraç satırı
-    const hr = body.insertParagraph('─'.repeat(40), Word.InsertLocation.end);
-    hr.font.color = '#7c3aed';
-    hr.font.size  = 9;
+    const isFullBraille = (title === 'BrailleVision – Metin Çevirisi');
+
+    // Orijinal metinle araya belirgin boşluklar ekle
+    body.insertParagraph('', Word.InsertLocation.end);
+    body.insertParagraph('', Word.InsertLocation.end);
+
+    if (isFullBraille) {
+      // Tüm belge çevirisinde sayfa hizası karışmasın diye ekstra boşluk
+      body.insertParagraph('', Word.InsertLocation.end);
+      body.insertParagraph('', Word.InsertLocation.end);
+    } else {
+      // Sadece ayraç satırı
+      const hr = body.insertParagraph('─'.repeat(40), Word.InsertLocation.end);
+      hr.font.color = '#7c3aed';
+      hr.font.size  = 9;
+      body.insertParagraph('', Word.InsertLocation.end);
+    }
 
     // Başlık
     const heading = body.insertParagraph(title, Word.InsertLocation.end);
     heading.font.bold  = true;
     heading.font.color = '#5b21b6';
-    heading.font.size  = 11;
+    heading.font.size  = 13;
+
+    // Başlıkla içerik arasına boşluk
+    body.insertParagraph('', Word.InsertLocation.end);
 
     // İçerik satırları
     content.split('\n').forEach(line => {
-      const p = body.insertParagraph(line, Word.InsertLocation.end);
-      p.font.size = 10;
-      // Braille satırı büyük fontla göster
-      if (line.startsWith('Nemeth Braille:') || line.startsWith('Braille Çevirisi:')) {
-        p.font.size  = 13;
-        p.font.bold  = true;
+      // İçerikteki boş satırların da düzgün yansıması için boşluk kontrolü eklendi
+      const p = body.insertParagraph(line || ' ', Word.InsertLocation.end);
+      
+      // Varsayılan normal görünüm
+      p.font.size = 11;
+      
+      // Braille satırı kontrolü (Tüm metin çevirisi yapıldıysa içerik komple Braille'dir)
+      const isBrailleLine = isFullBraille || line.startsWith('Nemeth Braille:') || line.startsWith('Braille Çevirisi:');
+      
+      if (isBrailleLine) {
+        p.font.size  = 20; // Braille okunaklı olması için büyük font
         p.font.color = '#1e1b4b';
+        p.alignment = 'Left'; // Yaslamadan kaynaklı harf arası açıklarını önle
+        p.spaceAfter = 10; // Braille satırları arasına makul boşluk
+      } else if (line.startsWith('Açıklama:')) {
+        p.font.italic = true;
+        p.font.color = '#4b5563';
       }
     });
+
+    // En alta çevirinin bittiğini belli eden boşluk
+    body.insertParagraph('', Word.InsertLocation.end);
+    body.insertParagraph('', Word.InsertLocation.end);
 
     await context.sync();
 
