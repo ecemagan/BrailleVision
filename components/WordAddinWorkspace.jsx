@@ -2,7 +2,9 @@
 
 import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
+import { BackButton } from "@/components/BackButton";
 import { useAuth } from "@/components/AuthProvider";
+import { useI18n } from "@/components/I18nProvider";
 import { saveDocumentRecord } from "@/lib/documents";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
 
@@ -38,20 +40,20 @@ function copyToClipboard(text) {
   return Promise.resolve();
 }
 
-function speakText(text) {
+function speakText(text, lang) {
   if (!text || !window.speechSynthesis) {
     return;
   }
 
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "en-US";
+  utterance.lang = lang;
   window.speechSynthesis.speak(utterance);
 }
 
 async function insertIntoWordDocument(title, contentLines) {
   if (!window.Word) {
-    throw new Error("Word context is not available.");
+    throw new Error("Word runtime is not available.");
   }
 
   await window.Word.run(async (context) => {
@@ -81,9 +83,9 @@ async function insertIntoWordDocument(title, contentLines) {
   });
 }
 
-function ResultCard({ result, onCopy, onDownload, onInsert, onSpeak }) {
+function ResultCard({ result, onCopy, onDownload, onInsert, onSpeak, t }) {
   return (
-    <article className="surface-card rounded-3xl p-5 md:p-6">
+    <article className="surface-card rounded-2xl p-5 md:p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="accent-label text-xs font-semibold uppercase tracking-[0.22em]">{result.kind}</p>
@@ -97,47 +99,47 @@ function ResultCard({ result, onCopy, onDownload, onInsert, onSpeak }) {
             onClick={() => onInsert(result)}
             className="button-primary rounded-full px-4 py-3 text-sm font-semibold transition"
           >
-            Insert to Word
+            {t("wordAddin.insertToWord")}
           </button>
           <button
             type="button"
             onClick={() => onCopy(result.brailleText)}
             className="button-secondary rounded-full px-4 py-3 text-sm font-semibold transition"
           >
-            Copy
+            {t("wordAddin.copy")}
           </button>
           <button
             type="button"
             onClick={() => onDownload(result)}
             className="button-secondary rounded-full px-4 py-3 text-sm font-semibold transition"
           >
-            Download
+            {t("wordAddin.download")}
           </button>
           <button
             type="button"
             onClick={() => onSpeak(result.speakText)}
             className="rounded-full border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-semibold text-violet-700 transition hover:border-violet-300 hover:bg-violet-100"
           >
-            Listen
+            {t("wordAddin.listen")}
           </button>
         </div>
       </div>
 
       <div className="mt-5 grid gap-4">
-        <div className="rounded-3xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Source</p>
+        <div className="glass-card rounded-2xl p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t("wordAddin.source")}</p>
           <p className="mt-3 whitespace-pre-wrap text-base leading-7 text-slate-700">{result.sourceText}</p>
         </div>
 
         {result.explanation ? (
-          <div className="rounded-3xl border border-violet-100 bg-violet-50/70 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">Explanation</p>
+          <div className="glass-card rounded-2xl border border-violet-100 bg-violet-50/70 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">{t("wordAddin.explanation")}</p>
             <p className="mt-3 whitespace-pre-wrap text-base leading-7 text-slate-700">{result.explanation}</p>
           </div>
         ) : null}
 
-        <div className="rounded-3xl bg-[radial-gradient(circle_at_top_right,rgba(216,180,254,0.42),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,238,255,0.92))] p-4 shadow-[0_24px_60px_rgba(124,58,237,0.12)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">Braille output</p>
+        <div className="glass-card rounded-2xl bg-[radial-gradient(circle_at_top_right,rgba(216,180,254,0.42),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,238,255,0.92))] p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">{t("wordAddin.brailleOutput")}</p>
           <p className="mt-3 break-all text-xl leading-8 text-slate-950">{result.brailleText}</p>
         </div>
       </div>
@@ -148,6 +150,7 @@ function ResultCard({ result, onCopy, onDownload, onInsert, onSpeak }) {
 export function WordAddinWorkspace() {
   const initializedRef = useRef(false);
   const { supabase, user, loading: authLoading } = useAuth();
+  const { t, locale } = useI18n();
   const [officeScriptLoaded, setOfficeScriptLoaded] = useState(false);
   const [officeReady, setOfficeReady] = useState(false);
   const [backendStatus, setBackendStatus] = useState("checking");
@@ -165,7 +168,7 @@ export function WordAddinWorkspace() {
 
     window.Office.onReady(async (info) => {
       if (info.host !== window.Office.HostType.Word) {
-        setErrorMessage("This workspace is designed to run inside Microsoft Word.");
+        setErrorMessage(t("wordAddin.workspaceDesignedForWord"));
         return;
       }
 
@@ -178,7 +181,7 @@ export function WordAddinWorkspace() {
         setBackendStatus("offline");
       }
     });
-  }, [officeScriptLoaded]);
+  }, [officeScriptLoaded, t]);
 
   async function getSelectionText() {
     return window.Word.run(async (context) => {
@@ -206,7 +209,7 @@ export function WordAddinWorkspace() {
     try {
       await work();
     } catch (error) {
-      setErrorMessage(getFriendlyDocumentMessage(error, "The Word add-in action failed."));
+      setErrorMessage(getFriendlyDocumentMessage(error, t("wordAddin.actionFailed")));
     } finally {
       setLoading(false);
     }
@@ -215,13 +218,13 @@ export function WordAddinWorkspace() {
   async function translateSelection(mode) {
     await runAction(async () => {
       if (!officeReady) {
-        throw new Error("Open this page inside Word before using the add-in actions.");
+        throw new Error(t("wordAddin.openInWord"));
       }
 
       const selectedText = (await getSelectionText())?.trim();
 
       if (!selectedText) {
-        throw new Error("Select text in Word first.");
+        throw new Error(t("wordAddin.selectTextFirst"));
       }
 
       if (mode === "alpha") {
@@ -236,13 +239,13 @@ export function WordAddinWorkspace() {
   async function translateDocument() {
     await runAction(async () => {
       if (!officeReady) {
-        throw new Error("Open this page inside Word before using the add-in actions.");
+        throw new Error(t("wordAddin.openInWord"));
       }
 
       const documentText = (await getDocumentText())?.trim();
 
       if (!documentText) {
-        throw new Error("The current Word document appears to be empty.");
+        throw new Error(t("wordAddin.documentEmpty"));
       }
 
       await requestAlphaTranslation(documentText);
@@ -258,15 +261,15 @@ export function WordAddinWorkspace() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `Request failed with status ${response.status}.`);
+      throw new Error(error.detail || `Request failed (${response.status}).`);
     }
 
     const data = await response.json();
     const nextResult = {
       id: createId(),
-      kind: "Selected text",
-      title: "Grade 1 Braille output",
-      timestamp: new Intl.DateTimeFormat("en", {
+      kind: t("wordAddin.selectedText"),
+      title: t("wordAddin.grade1OutputTitle"),
+      timestamp: new Intl.DateTimeFormat(locale === "tr" ? "tr-TR" : "en-US", {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(new Date()),
@@ -275,8 +278,14 @@ export function WordAddinWorkspace() {
       explanation: "",
       speakText: data.original,
       downloadName: "BrailleVision_Alfabesi.txt",
-      insertTitle: "BrailleVision – Text Translation",
-      insertLines: [`Original Text:`, data.original, "", `Braille Translation:`, data.braille],
+      insertTitle: t("wordAddin.textTranslationInsertTitle"),
+      insertLines: [
+        `${t("wordAddin.originalTextLabel")}:`,
+        data.original,
+        "",
+        `${t("wordAddin.brailleTranslationLabel")}:`,
+        data.braille,
+      ],
       historyFileName: `word-selection-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
       conversionMode: "text",
     };
@@ -294,7 +303,7 @@ export function WordAddinWorkspace() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `Request failed with status ${response.status}.`);
+      throw new Error(error.detail || `Request failed (${response.status}).`);
     }
 
     const data = await response.json();
@@ -302,9 +311,9 @@ export function WordAddinWorkspace() {
       .filter((item) => !item.error)
       .map((item, index) => ({
         id: createId(),
-        kind: "Math selection",
-        title: `Nemeth output ${index + 1}`,
-        timestamp: new Intl.DateTimeFormat("en", {
+        kind: t("wordAddin.mathSelection"),
+        title: t("wordAddin.nemethOutputTitle", { index: index + 1 }),
+        timestamp: new Intl.DateTimeFormat(locale === "tr" ? "tr-TR" : "en-US", {
           dateStyle: "medium",
           timeStyle: "short",
         }).format(new Date()),
@@ -313,18 +322,18 @@ export function WordAddinWorkspace() {
         explanation: item.explanation || "",
         speakText: item.explanation || item.expression,
         downloadName: `BrailleVision_Nemeth_${index + 1}.txt`,
-        insertTitle: "BrailleVision – Math Translation",
+        insertTitle: t("wordAddin.mathTranslationInsertTitle"),
         insertLines: [
           item.expression,
-          `Nemeth Braille: ${item.braille}`,
-          ...(item.explanation ? [`Explanation: ${item.explanation}`] : []),
+          `${t("wordAddin.nemethBrailleLabel")}: ${item.braille}`,
+          ...(item.explanation ? [`${t("wordAddin.explanationLabel")}: ${item.explanation}`] : []),
         ],
         historyFileName: `word-math-${index + 1}-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
         conversionMode: "nemeth",
       }));
 
     if (nextResults.length === 0) {
-      throw new Error("No mathematical expression was returned from the backend.");
+      throw new Error(t("wordAddin.noMathExpression"));
     }
 
     setResults(nextResults);
@@ -335,8 +344,8 @@ export function WordAddinWorkspace() {
     if (!user || !supabase) {
       setActionMessage(
         authLoading
-          ? "Conversion is ready. Session sync is still loading."
-          : "Conversion is ready. Log in to save it to the dashboard history.",
+          ? t("wordAddin.conversionReadySessionLoading")
+          : t("wordAddin.conversionReadyLoginToSave"),
       );
       return;
     }
@@ -355,31 +364,32 @@ export function WordAddinWorkspace() {
       ),
     );
 
-    setActionMessage("Conversion is ready and synced to your dashboard history.");
+    setActionMessage(t("wordAddin.conversionReadySynced"));
   }
 
   async function handleInsert(result) {
     await runAction(async () => {
       await insertIntoWordDocument(result.insertTitle, result.insertLines);
-      setActionMessage("Result inserted into the current Word document.");
+      setActionMessage(t("wordAddin.resultInserted"));
     });
   }
 
   async function handleCopy(text) {
     await runAction(async () => {
       await copyToClipboard(text);
-      setActionMessage("Braille copied to clipboard.");
+      setActionMessage(t("wordAddin.brailleCopied"));
     });
   }
 
   function handleDownload(result) {
     downloadTextFile(result.insertLines.join("\n"), result.downloadName);
-    setActionMessage("Text file downloaded.");
+    setActionMessage(t("wordAddin.textFileDownloaded"));
   }
 
   function handleSpeak(text) {
-    speakText(text);
-    setActionMessage("Reading started.");
+    const speechLang = locale === "tr" ? "tr-TR" : "en-US";
+    speakText(text, speechLang);
+    setActionMessage(t("wordAddin.readingStarted"));
   }
 
   const statusTone =
@@ -398,28 +408,30 @@ export function WordAddinWorkspace() {
       />
 
       <main className="page-shell">
-        <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-          <section className="surface-card hero-wash rounded-4xl p-6 md:p-8 xl:sticky xl:top-6 xl:self-start">
+        <div className="relative mx-auto grid max-w-7xl gap-6 pt-16 xl:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="absolute left-0 top-4 z-20 md:top-6">
+            <BackButton />
+          </div>
+
+          <section className="surface-card hero-wash rounded-2xl p-6 md:p-8 xl:sticky xl:top-6 xl:self-start">
             <div className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700">
-              Braille Vision for Word
+              {t("wordAddin.title")}
             </div>
             <h1 className="font-display mt-5 text-4xl font-bold tracking-tight text-slate-950">
-              Convert selected text and math inside Microsoft Word.
+              {t("wordAddin.subtitle")}
             </h1>
             <p className="mt-4 text-lg leading-8 text-slate-600">
-              The add-in keeps the existing Word workflow, but with the new lilac workspace. Select content in Word,
-              trigger a conversion, then insert or export the result.
+              {t("wordAddin.description")}
             </p>
 
-            <div className={`mt-6 rounded-3xl border px-4 py-4 text-sm font-semibold ${statusTone}`}>
+            <div className={`glass-card mt-6 rounded-2xl border px-4 py-4 text-sm font-semibold ${statusTone}`}>
               <p>
-                Word host: {officeReady ? "Connected" : officeScriptLoaded ? "Waiting for Word" : "Loading Office.js"}
+                {t("wordAddin.statusWordHost")}: {officeReady ? t("wordAddin.connected") : officeScriptLoaded ? t("wordAddin.waitingForWord") : t("wordAddin.loadingOfficeJs")}
               </p>
               <p className="mt-1">
-                Backend:{" "}
-                {backendStatus === "online" ? "Connected" : backendStatus === "offline" ? "Offline" : "Checking"}
+                {t("wordAddin.statusBackend")}: {backendStatus === "online" ? t("wordAddin.connected") : backendStatus === "offline" ? t("wordAddin.offline") : t("wordAddin.checking")}
               </p>
-              <p className="mt-1">History sync: {user ? "Signed in" : authLoading ? "Checking session" : "Not signed in"}</p>
+              <p className="mt-1">{t("wordAddin.statusHistorySync")}: {user ? t("wordAddin.signedIn") : authLoading ? t("auth.checkingSession") : t("wordAddin.notSignedIn")}</p>
             </div>
 
             <div className="mt-6 grid gap-3">
@@ -429,9 +441,9 @@ export function WordAddinWorkspace() {
                 disabled={loading}
                 className="button-primary rounded-3xl px-5 py-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-100">Selected text</span>
-                <span className="font-display mt-2 block text-2xl font-bold text-white">Convert to Grade 1 Braille</span>
-                <span className="mt-2 block text-sm text-violet-100">Reads the active Word selection and returns Braille output.</span>
+                <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-100">{t("wordAddin.selectedText")}</span>
+                <span className="font-display mt-2 block text-2xl font-bold text-white">{t("wordAddin.convertGrade1")}</span>
+                <span className="mt-2 block text-sm text-violet-100">{t("wordAddin.selectedTextDesc")}</span>
               </button>
 
               <button
@@ -440,9 +452,9 @@ export function WordAddinWorkspace() {
                 disabled={loading}
                 className="surface-soft rounded-3xl px-5 py-4 text-left transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">Math selection</span>
-                <span className="font-display mt-2 block text-2xl font-bold text-slate-950">Convert to Nemeth</span>
-                <span className="mt-2 block text-sm text-slate-600">Use the existing math backend for selected equations or expressions.</span>
+                <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">{t("wordAddin.mathSelection")}</span>
+                <span className="font-display mt-2 block text-2xl font-bold text-slate-950">{t("wordAddin.convertNemeth")}</span>
+                <span className="mt-2 block text-sm text-slate-600">{t("wordAddin.mathSelectionDesc")}</span>
               </button>
 
               <button
@@ -451,25 +463,25 @@ export function WordAddinWorkspace() {
                 disabled={loading}
                 className="surface-soft rounded-3xl px-5 py-4 text-left transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">Full document</span>
-                <span className="font-display mt-2 block text-2xl font-bold text-slate-950">Convert the entire document</span>
-                <span className="mt-2 block text-sm text-slate-600">Reads the full Word document and generates a text-to-Braille result.</span>
+                <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">{t("wordAddin.fullDocument")}</span>
+                <span className="font-display mt-2 block text-2xl font-bold text-slate-950">{t("wordAddin.convertEntireDocument")}</span>
+                <span className="mt-2 block text-sm text-slate-600">{t("wordAddin.fullDocumentDesc")}</span>
               </button>
             </div>
 
-            <div className="mt-6 rounded-3xl border border-slate-200 bg-white/90 p-4 text-sm leading-7 text-slate-600">
-              Keep the Python backend and this Word gateway open while testing. Sideloading still uses the same manifest flow.
+            <div className="glass-card mt-6 rounded-2xl p-4 text-sm leading-7 text-slate-600">
+              {t("wordAddin.keepBackendOpen")}
             </div>
           </section>
 
           <section className="space-y-6">
             {loading ? (
-              <div className="surface-card rounded-[28px] p-6">
+              <div className="surface-card rounded-2xl p-6">
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 animate-spin rounded-full border-4 border-violet-200 border-t-violet-600" />
                   <div>
-                    <p className="font-display text-2xl font-bold text-slate-950">Converting in progress</p>
-                    <p className="mt-1 text-sm text-slate-600">Word content is being sent through the existing Braille backend.</p>
+                    <p className="font-display text-2xl font-bold text-slate-950">{t("wordAddin.convertingInProgress")}</p>
+                    <p className="mt-1 text-sm text-slate-600">{t("wordAddin.wordContentSending")}</p>
                   </div>
                 </div>
               </div>
@@ -488,11 +500,10 @@ export function WordAddinWorkspace() {
             ) : null}
 
             {results.length === 0 ? (
-              <div className="surface-card rounded-[28px] p-8 text-center">
-                <p className="font-display text-3xl font-bold text-slate-950">No conversion yet</p>
+              <div className="surface-card rounded-2xl p-8 text-center">
+                <p className="font-display text-3xl font-bold text-slate-950">{t("wordAddin.noConversionYet")}</p>
                 <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-slate-600">
-                  Open the task pane inside Word, select text or math, and run one of the actions on the left. The results
-                  will appear here with insert, copy, listen, and download controls.
+                  {t("wordAddin.noConversionDescription")}
                 </p>
               </div>
             ) : null}
@@ -505,6 +516,7 @@ export function WordAddinWorkspace() {
                 onDownload={handleDownload}
                 onInsert={handleInsert}
                 onSpeak={handleSpeak}
+                t={t}
               />
             ))}
           </section>

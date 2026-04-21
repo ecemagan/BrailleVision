@@ -7,6 +7,7 @@ import { normalizeTags, saveDocumentRecord } from "@/lib/documents";
 import { exportDocuments } from "@/lib/exportDocuments";
 import { extractImageText } from "@/lib/extractImageText";
 import { extractPdfText } from "@/lib/extractPdfText";
+import { useI18n } from "@/components/I18nProvider";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
 
 function detectConversionMode(text, sourceType) {
@@ -27,8 +28,10 @@ export function UploadPanel({
   isActive = false,
 }) {
   const isCompact = density === "compact";
+  const { t } = useI18n();
   const formRef = useRef(null);
-  const resultRef = useRef(null);
+  const documentInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
   const [manualText, setManualText] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedSourceType, setSelectedSourceType] = useState("manual");
@@ -41,15 +44,8 @@ export function UploadPanel({
   const [tagInput, setTagInput] = useState("");
   const [useImprovedText, setUseImprovedText] = useState(true);
   const [copyMessage, setCopyMessage] = useState("");
-
-  function scrollToResult() {
-    if (!resultRef.current) {
-      return;
-    }
-
-    const targetTop = resultRef.current.getBoundingClientRect().top + window.scrollY - 24;
-    window.scrollTo(0, Math.max(targetTop, 0));
-  }
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const allowedDocumentExtensions = useMemo(() => ["pdf", "txt", "jpg", "jpeg", "png"], []);
 
   useEffect(() => {
     if (quickSaveSignal > 0 && isActive) {
@@ -57,17 +53,134 @@ export function UploadPanel({
     }
   }, [isActive, quickSaveSignal]);
 
-  useEffect(() => {
-    if (!brailleResult) {
-      return undefined;
+  function setFileSelection(file, sourceType) {
+    if (!file) {
+      return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      scrollToResult();
-    }, 80);
+    setSelectedFile(file);
+    setSelectedSourceType(sourceType);
+    setErrorMessage("");
+  }
 
-    return () => window.clearTimeout(timeoutId);
-  }, [brailleResult]);
+  function notifyInvalidSelection(message) {
+    setErrorMessage(message);
+    onNotify?.({
+      type: "warning",
+      title: t("upload.invalidSelectionTitle"),
+      message,
+    });
+  }
+
+  function validateDocumentFile(file) {
+    if (!file) {
+      return false;
+    }
+
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+    const isImageType = file.type.startsWith("image/");
+
+    return allowedDocumentExtensions.includes(extension) || isImageType;
+  }
+
+  function validateCameraFile(file) {
+    if (!file) {
+      return false;
+    }
+
+    return file.type.startsWith("image/");
+  }
+
+  function handleDocumentInputChange(event) {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (!validateDocumentFile(file)) {
+      notifyInvalidSelection(t("upload.unsupportedDocumentFormat"));
+      return;
+    }
+
+    setFileSelection(file, inferSourceType(file));
+  }
+
+  function handleCameraInputChange(event) {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (!validateCameraFile(file)) {
+      notifyInvalidSelection(t("upload.unsupportedCameraFormat"));
+      return;
+    }
+
+    setFileSelection(file, "camera");
+  }
+
+  function openDocumentPicker() {
+    documentInputRef.current?.click();
+  }
+
+  async function openCameraPicker() {
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+        });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch {
+        notifyInvalidSelection(t("upload.cameraPermissionDenied"));
+        return;
+      }
+    }
+
+    cameraInputRef.current?.click();
+  }
+
+  function inferSourceType(file) {
+    if (!file) {
+      return "manual";
+    }
+
+    if (file.type.startsWith("image/")) {
+      return "image";
+    }
+
+    return "manual";
+  }
+
+  function handleDropzoneDragOver(event) {
+    event.preventDefault();
+    setIsDraggingFile(true);
+  }
+
+  function handleDropzoneDragLeave(event) {
+    event.preventDefault();
+    setIsDraggingFile(false);
+  }
+
+  function handleDropzoneDrop(event) {
+    event.preventDefault();
+    setIsDraggingFile(false);
+    const file = event.dataTransfer.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    if (!validateDocumentFile(file)) {
+      notifyInvalidSelection(t("upload.unsupportedDocumentFormat"));
+      return;
+    }
+
+    setFileSelection(file, inferSourceType(file));
+  }
 
   async function getInputText() {
     if (selectedFile) {
@@ -97,7 +210,7 @@ export function UploadPanel({
         };
       }
 
-      throw new Error("Please upload a .txt, .pdf, or image file.");
+      throw new Error(t("upload.supportedFiles"));
     }
 
     if (manualText.trim()) {
@@ -108,7 +221,7 @@ export function UploadPanel({
       };
     }
 
-    throw new Error("Add text or choose a file before converting.");
+    throw new Error(t("upload.addTextOrChooseFile"));
   }
 
   const currentAnalysis = useMemo(() => {
@@ -140,19 +253,19 @@ export function UploadPanel({
 
     try {
       await navigator.clipboard.writeText(brailleResult);
-      setCopyMessage("Braille output copied.");
+      setCopyMessage(t("upload.brailleCopied"));
       onNotify?.({
         type: "success",
-        title: "Braille copied",
-        message: "The converted Braille output was copied to the clipboard.",
+        title: t("upload.brailleCopiedTitle"),
+        message: t("upload.brailleCopiedMessage"),
       });
       window.setTimeout(() => setCopyMessage(""), 2200);
     } catch (error) {
-      const friendlyMessage = getFriendlyDocumentMessage(error, "Clipboard access is blocked in this browser tab.");
+      const friendlyMessage = getFriendlyDocumentMessage(error, t("upload.clipboardBlocked"));
       setErrorMessage(friendlyMessage);
       onNotify?.({
         type: "error",
-        title: "Clipboard blocked",
+        title: t("upload.clipboardBlockedTitle"),
         message: friendlyMessage,
       });
     }
@@ -167,15 +280,15 @@ export function UploadPanel({
       await exportDocuments([resultDocument], format);
       onNotify?.({
         type: "success",
-        title: "Export complete",
-        message: `${resultDocument.file_name} exported as ${format.toUpperCase()}.`,
+        title: t("upload.exportComplete"),
+        message: t("upload.exportCompleteMessage", { name: resultDocument.file_name, format: format.toUpperCase() }),
       });
     } catch (error) {
-      const friendlyMessage = getFriendlyDocumentMessage(error, "The export could not be completed.");
+      const friendlyMessage = getFriendlyDocumentMessage(error, t("upload.exportFailed"));
       setErrorMessage(friendlyMessage);
       onNotify?.({
         type: "error",
-        title: "Export failed",
+        title: t("upload.exportFailedTitle"),
         message: friendlyMessage,
       });
     }
@@ -231,27 +344,23 @@ export function UploadPanel({
         tags,
       });
 
-      const message = "Conversion saved to your library.";
+      const message = t("upload.conversionSavedMessageShort");
       setSuccessMessage(message);
       setSelectedFile(null);
       setSelectedSourceType("manual");
       setTagInput("");
       onSaved?.();
-      window.requestAnimationFrame(() => {
-        scrollToResult();
-        window.setTimeout(scrollToResult, 220);
-      });
       onNotify?.({
         type: "success",
-        title: "Conversion saved",
-        message: `${fileName} is ready to review, copy, or export.`,
+        title: t("upload.conversionSaved"),
+        message: t("upload.conversionSavedMessage", { name: fileName }),
       });
     } catch (error) {
-      const friendlyMessage = getFriendlyDocumentMessage(error, "The upload could not be converted right now.");
+      const friendlyMessage = getFriendlyDocumentMessage(error, t("upload.conversionFailed"));
       setErrorMessage(friendlyMessage);
       onNotify?.({
         type: "error",
-        title: "Conversion failed",
+        title: t("upload.conversionFailedTitle"),
         message: friendlyMessage,
       });
     } finally {
@@ -261,77 +370,172 @@ export function UploadPanel({
 
   return (
     <section className="space-y-6">
-      <div className={`surface-card ${isCompact ? "rounded-[24px] p-5 md:p-6" : "rounded-[28px] p-6 md:p-8"}`}>
-        <form ref={formRef} className="grid gap-5" onSubmit={handleConvert}>
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">Source text</span>
-            <textarea
-              rows={isCompact ? 6 : 8}
-              value={manualText}
-              onChange={(event) => setManualText(event.target.value)}
-              className="field-input w-full rounded-[24px] px-4 py-4 outline-none transition"
-              placeholder="Paste or type the text you want to convert."
-            />
-          </label>
+      <div className={`surface-card ${isCompact ? "rounded-2xl p-5 md:p-6" : "rounded-2xl p-6 md:p-8"}`}>
+        <form ref={formRef} className="grid gap-6" onSubmit={handleConvert}>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="space-y-5">
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">{t("upload.sourceText")}</span>
+                <textarea
+                  rows={isCompact ? 9 : 11}
+                  value={manualText}
+                  onChange={(event) => setManualText(event.target.value)}
+                  className="field-input w-full rounded-2xl px-4 py-4 outline-none transition"
+                  placeholder={t("upload.sourcePlaceholder")}
+                />
+              </label>
 
-          <div className="grid gap-5 lg:grid-cols-2">
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Upload document or image</span>
-              <input
-                type="file"
-                accept=".txt,.pdf,image/*"
-                onChange={(event) => {
-                  setSelectedFile(event.target.files?.[0] ?? null);
-                  setSelectedSourceType("image");
-                }}
-                className="field-input w-full rounded-[24px] border border-dashed px-4 py-3 text-sm text-slate-600"
-              />
-            </label>
+              <div>
+                <p className="mb-2 block text-sm font-semibold text-slate-700">{t("upload.dropzoneTitle")}</p>
 
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Capture with camera</span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(event) => {
-                  setSelectedFile(event.target.files?.[0] ?? null);
-                  setSelectedSourceType("camera");
-                }}
-                className="field-input w-full rounded-[24px] border border-dashed px-4 py-3 text-sm text-slate-600"
-              />
-            </label>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onDragOver={handleDropzoneDragOver}
+                  onDragLeave={handleDropzoneDragLeave}
+                  onDrop={handleDropzoneDrop}
+                  className={`rounded-2xl border-2 border-dashed p-6 text-center transition ${
+                    isDraggingFile
+                      ? "border-violet-500 bg-violet-50/75"
+                      : "border-violet-200 bg-white/70 hover:border-violet-300 hover:bg-violet-50/45"
+                  }`}
+                >
+                  <input
+                    ref={documentInputRef}
+                    type="file"
+                    accept=".txt,.pdf,image/*"
+                    onChange={handleDocumentInputChange}
+                    className="hidden"
+                  />
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleCameraInputChange}
+                    className="hidden"
+                  />
+
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-violet-200 bg-violet-50 text-lg text-violet-700">
+                      📄
+                    </span>
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-violet-200 bg-violet-50 text-lg text-violet-700">
+                      📷
+                    </span>
+                  </div>
+
+                  <p className="mt-4 text-sm font-semibold text-slate-900">{t("upload.dropzoneHint")}</p>
+                  <p className="mt-1 text-xs text-slate-600">{t("upload.dropzoneSubhint")}</p>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openDocumentPicker();
+                      }}
+                      className="button-secondary rounded-full px-4 py-2 text-xs font-semibold"
+                    >
+                      {t("upload.uploadDocumentOrImage")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async (event) => {
+                        event.stopPropagation();
+                        await openCameraPicker();
+                      }}
+                      className="button-secondary rounded-full px-4 py-2 text-xs font-semibold"
+                    >
+                      {t("upload.captureWithCamera")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">{t("upload.tags")}</span>
+                  <input
+                    value={tagInput}
+                    onChange={(event) => setTagInput(event.target.value)}
+                    className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
+                    placeholder={t("upload.tagsPlaceholder")}
+                  />
+                </label>
+
+                <label className="surface-muted flex items-start gap-3 rounded-2xl px-4 py-4">
+                  <input
+                    type="checkbox"
+                    checked={useImprovedText}
+                    onChange={(event) => setUseImprovedText(event.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-900">{t("upload.cleanFormatting")}</span>
+                  </span>
+                </label>
+              </div>
+
+              {selectedFile ? (
+                <p className="surface-muted rounded-2xl px-4 py-3 text-sm text-slate-700">
+                  {t("upload.selectedFile")} <span className="font-semibold">{selectedFile.name}</span>
+                </p>
+              ) : null}
+            </div>
+
+            <aside className="rounded-2xl border border-slate-800/80 bg-slate-900 p-5 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-20px_48px_rgba(15,23,42,0.7),0_20px_40px_rgba(2,6,23,0.35)]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700/70 pb-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{t("upload.previewLabel")}</p>
+                  <h3 className="mt-2 text-xl font-bold text-white">{t("upload.brailleOutput")}</h3>
+                </div>
+
+                {brailleResult ? (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyResult}
+                      className="rounded-full border border-slate-500/70 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:border-violet-400 hover:text-violet-200"
+                    >
+                      {t("documents.copy")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportResult("docx")}
+                      className="rounded-full border border-slate-500/70 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:border-violet-400 hover:text-violet-200"
+                    >
+                      {t("upload.exportToWord")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              {copyMessage ? <p className="mt-4 text-sm font-semibold text-emerald-300">{copyMessage}</p> : null}
+
+              <div className="mt-5 min-h-[320px] rounded-2xl border border-slate-700/70 bg-gradient-to-b from-slate-950 to-slate-900 px-5 py-5 shadow-[inset_0_0_28px_rgba(15,23,42,0.8)]">
+                {brailleResult ? (
+                  <div className="max-h-[48vh] overflow-y-auto whitespace-pre-wrap break-all text-[2rem] leading-[1.9] text-amber-100 [text-shadow:0_0_10px_rgba(250,204,21,0.38),0_0_20px_rgba(255,255,255,0.16)] md:text-[2.5rem]">
+                    {brailleResult}
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[280px] items-center justify-center text-center text-sm text-slate-400">
+                    {t("upload.previewPlaceholder")}
+                  </div>
+                )}
+              </div>
+
+              {brailleResult ? (
+                <button
+                  type="button"
+                  onClick={handleCloseResult}
+                  className="mt-4 button-secondary rounded-full px-5 py-2.5 text-sm font-semibold"
+                >
+                  {t("upload.closeResult")}
+                </button>
+              ) : null}
+            </aside>
           </div>
-
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Tags</span>
-              <input
-                value={tagInput}
-                onChange={(event) => setTagInput(event.target.value)}
-                className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
-                placeholder="Optional: exam, chapter-3, math"
-              />
-            </label>
-
-            <label className="surface-muted flex items-start gap-3 rounded-[24px] px-4 py-4">
-              <input
-                type="checkbox"
-                checked={useImprovedText}
-                onChange={(event) => setUseImprovedText(event.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600"
-              />
-              <span>
-                <span className="block text-sm font-semibold text-slate-900">Clean formatting before conversion</span>
-              </span>
-            </label>
-          </div>
-
-          {selectedFile ? (
-            <p className="surface-muted rounded-2xl px-4 py-3 text-sm text-slate-700">
-              Selected file: <span className="font-semibold">{selectedFile.name}</span>
-            </p>
-          ) : null}
 
           {errorMessage ? (
             <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errorMessage}</p>
@@ -343,102 +547,32 @@ export function UploadPanel({
             </p>
           ) : null}
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex justify-center">
             <button
               type="submit"
               disabled={saving}
               className="button-primary rounded-full px-6 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {saving ? "Converting and saving..." : "Convert to Braille"}
+              {saving ? t("upload.convertingAndSaving") : t("upload.convertToBraille")}
             </button>
-
-            {brailleResult ? (
-              <button
-                type="button"
-                onClick={handleCloseResult}
-                className="button-secondary rounded-full px-6 py-3 font-semibold transition"
-              >
-                Close result
-              </button>
-            ) : null}
           </div>
         </form>
       </div>
 
-      {brailleResult ? (
-        <div ref={resultRef} className="grid gap-6">
-          <article className={`surface-card ${isCompact ? "rounded-[24px] p-5" : "rounded-[30px] p-7"}`}>
-            <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-end md:justify-between">
-              <div>
-                <h3 className="text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">
-                  {resultDocument?.file_name || "Braille output"}
-                </h3>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handleCopyResult}
-                  className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
-                >
-                  Copy Braille
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportResult("txt")}
-                  className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
-                >
-                  Download .txt
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportResult("docx")}
-                  className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
-                >
-                  Download .docx
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportResult("pdf")}
-                  className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
-                >
-                  Download .pdf
-                </button>
-              </div>
+      <div className="surface-muted rounded-2xl px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-slate-900">{t("upload.readabilityScore")}: {currentAnalysis.readabilityScore}/100</p>
+          {suggestedTags.length ? (
+            <div className="flex flex-wrap gap-2">
+              {suggestedTags.map((tag) => (
+                <span key={tag} className="info-chip rounded-full px-3 py-1 text-xs font-semibold">
+                  #{tag}
+                </span>
+              ))}
             </div>
-
-            {copyMessage ? <p className="mt-4 text-sm font-semibold text-emerald-700">{copyMessage}</p> : null}
-
-            <div className="mt-6 rounded-[26px] border border-slate-200 bg-white px-5 py-6">
-              <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-all text-[2.1rem] leading-[1.95] text-slate-950 md:text-[2.8rem]">
-                {brailleResult}
-              </div>
-            </div>
-          </article>
-
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <article className={`surface-card ${isCompact ? "rounded-[24px] p-5" : "rounded-[28px] p-6"}`}>
-              <h3 className="text-2xl font-bold text-slate-950">Original text</h3>
-              <div className="mt-4 max-h-[36vh] overflow-y-auto whitespace-pre-wrap text-base leading-7 text-slate-700">
-                {sourceText}
-              </div>
-            </article>
-
-            <aside className={`surface-muted ${isCompact ? "rounded-[24px] p-5" : "rounded-[28px] p-6"}`}>
-              <p className="text-3xl font-bold text-slate-950">{currentAnalysis.readabilityScore}/100</p>
-              {suggestedTags.length ? (
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {suggestedTags.map((tag) => (
-                    <span key={tag} className="info-chip rounded-full px-3 py-1 text-xs font-semibold">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </aside>
-          </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }

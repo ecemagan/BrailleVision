@@ -3,33 +3,17 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BackButton } from "@/components/BackButton";
 import { LoadingCard } from "@/components/LoadingCard";
+import { useI18n } from "@/components/I18nProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { DEFAULT_PROFILE_PREFERENCES } from "@/lib/profiles";
 import { getFriendlyAuthMessage } from "@/lib/userMessages";
 
-const authContent = {
-  login: {
-    title: "Log in to your dashboard",
-    subtitle: "Access saved conversions, upload new documents, and manage your Braille output.",
-    buttonLabel: "Log in",
-    footerText: "Need an account?",
-    footerLink: "/register",
-    footerLinkLabel: "Create one",
-  },
-  register: {
-    title: "Create your Braille Vision account",
-    subtitle: "Sign up with email and password so each conversion stays linked to your own workspace.",
-    buttonLabel: "Create account",
-    footerText: "Already have an account?",
-    footerLink: "/login",
-    footerLinkLabel: "Log in",
-  },
-};
-
 export function AuthForm({ mode }) {
   const router = useRouter();
   const { supabase, user, loading, configError } = useAuth();
+  const { t } = useI18n();
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,11 +36,11 @@ export function AuthForm({ mode }) {
 
     try {
       if (!supabase) {
-        throw new Error(configError || "Supabase is not configured yet.");
+        throw new Error(configError || t("auth.supabaseNotConfigured"));
       }
 
       if (!email.trim()) {
-        throw new Error("Enter your email first, then resend the confirmation message.");
+        throw new Error(t("auth.enterEmailFirst"));
       }
 
       const { error } = await supabase.auth.resend({
@@ -68,9 +52,9 @@ export function AuthForm({ mode }) {
         throw error;
       }
 
-      setMessage("Confirmation email sent again. Check your inbox and spam folder.");
+      setMessage(t("auth.confirmationResent"));
     } catch (error) {
-      setErrorMessage(getFriendlyAuthMessage(error, "We could not resend the confirmation email."));
+      setErrorMessage(getFriendlyAuthMessage(error, t("auth.couldNotResend")));
     } finally {
       setResendingConfirmation(false);
     }
@@ -78,7 +62,7 @@ export function AuthForm({ mode }) {
 
   useEffect(() => {
     if (mode === "login" && !loading && user) {
-      router.replace("/dashboard");
+      router.replace("/dashboard?tab=overview");
     }
   }, [loading, mode, router, user]);
 
@@ -103,7 +87,7 @@ export function AuthForm({ mode }) {
 
     try {
       if (!supabase) {
-        throw new Error(configError || "Supabase is not configured yet.");
+        throw new Error(configError || t("auth.supabaseNotConfigured"));
       }
 
       // Supabase handles both email sign-up and password login directly from the browser.
@@ -130,11 +114,11 @@ export function AuthForm({ mode }) {
 
         if (data?.session) {
           await supabase.auth.signOut();
-          setMessage("Account created. You can now log in with the same email and password.");
-          router.replace("/login");
+          setMessage(t("auth.accountCreated"));
+          router.replace("/");
         } else {
           setNeedsConfirmation(true);
-          setMessage("Account created. Please confirm your email before logging in.");
+          setMessage(t("auth.confirmEmail"));
         }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
@@ -151,103 +135,109 @@ export function AuthForm({ mode }) {
         }
 
         setNeedsConfirmation(false);
-        router.replace("/dashboard");
+        router.replace("/dashboard?tab=overview");
       }
     } catch (error) {
       if (isEmailConfirmationError(error)) {
         setNeedsConfirmation(true);
       }
 
-      setErrorMessage(getFriendlyAuthMessage(error, "Authentication failed."));
+      setErrorMessage(getFriendlyAuthMessage(error, t("auth.authenticationFailed")));
     } finally {
       setSubmitting(false);
     }
   }
 
   if (loading && !showLoadingFallback) {
-    return <LoadingCard title="Checking session..." description="Preparing the authentication flow." />;
+    return <LoadingCard title={t("auth.checkingSession")} description={t("auth.preparingAuthFlow")} />;
   }
 
-  const content = authContent[mode];
+  const content =
+    mode === "login"
+      ? { title: t("auth.loginTitle"), subtitle: t("auth.loginSubtitle"), buttonLabel: t("auth.logIn"), footerText: t("auth.needAccount"), footerLink: "/register", footerLinkLabel: t("auth.createOne") }
+      : { title: t("auth.registerTitle"), subtitle: t("auth.registerSubtitle"), buttonLabel: t("auth.createAccount"), footerText: t("auth.alreadyHaveAccount"), footerLink: "/login", footerLinkLabel: t("auth.logIn") };
 
   return (
     <main className="page-shell flex items-center justify-center">
-      <div className="grid w-full max-w-5xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="surface-card hero-wash hidden rounded-4xl p-10 lg:block">
+      <div className="relative grid w-full max-w-5xl gap-6 pt-20 md:pt-24 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="absolute left-0 top-0 z-20">
+          <BackButton />
+        </div>
+
+        <section className="surface-card hero-wash hidden rounded-2xl p-10 lg:block">
           <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">Braille Vision</p>
           <h1 className="font-display mt-4 text-5xl font-bold tracking-tight text-slate-950">
-            Convert documents into Braille with a clear, secure workflow.
+            {t("landing.headline")}
           </h1>
           <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">
-            Supabase handles authentication and storage while the dashboard keeps uploads, results, and
-            personal document history in one place.
+            {t("landing.subheadline")}
           </p>
         </section>
 
-        <section className="surface-card rounded-4xl p-8 md:p-10">
+        <section className="surface-card rounded-2xl p-8 md:p-10">
           <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">
-            {mode === "login" ? "Welcome back" : "Get started"}
+            {mode === "login" ? t("auth.loginTitle") : t("auth.getStarted")}
           </p>
           <h2 className="font-display mt-3 text-3xl font-bold text-slate-950">{content.title}</h2>
           <p className="mt-3 text-base leading-7 text-slate-600">{content.subtitle}</p>
 
           {loading && showLoadingFallback ? (
             <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-              Session check is taking longer than expected. You can continue signing in while the connection finishes in the background.
+              {t("auth.sessionDelay")}
             </p>
           ) : null}
 
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             {mode === "register" ? (
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Display name</span>
+                <span className="mb-2 block text-sm font-semibold text-slate-700">{t("settings.displayName")}</span>
                 <input
                   type="text"
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
                   autoComplete="name"
                   className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
-                  placeholder="How should your workspace greet you?"
+                  placeholder={t("auth.displayNamePlaceholder")}
                 />
               </label>
             ) : null}
 
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Email</span>
+              <span className="mb-2 block text-sm font-semibold text-slate-700">{t("auth.email")}</span>
               <input
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 autoComplete="email"
                 className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder")}
                 required
               />
             </label>
 
             {mode === "register" ? (
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Workspace density</span>
+                <span className="mb-2 block text-sm font-semibold text-slate-700">{t("auth.workspaceDensity")}</span>
                 <select
                   value={dashboardDensity}
                   onChange={(event) => setDashboardDensity(event.target.value)}
                   className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
                 >
-                  <option value="comfortable">Comfortable</option>
-                  <option value="compact">Compact</option>
+                  <option value="comfortable">{t("settings.densityComfortable")}</option>
+                  <option value="compact">{t("settings.densityCompact")}</option>
                 </select>
               </label>
             ) : null}
 
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Password</span>
+              <span className="mb-2 block text-sm font-semibold text-slate-700">{t("auth.password")}</span>
               <input
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
                 className="field-input w-full rounded-2xl px-4 py-3 outline-none transition"
-                placeholder="Minimum 6 characters"
+                placeholder={t("auth.passwordPlaceholder")}
                 minLength={6}
                 required
               />
@@ -278,7 +268,7 @@ export function AuthForm({ mode }) {
                 disabled={resendingConfirmation}
                 className="button-secondary w-full rounded-full px-5 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {resendingConfirmation ? "Resending..." : "Resend confirmation email"}
+                {resendingConfirmation ? t("common.resending") : t("auth.resendConfirmation")}
               </button>
             ) : null}
 
@@ -287,7 +277,7 @@ export function AuthForm({ mode }) {
               disabled={submitting}
               className="button-primary w-full rounded-full px-5 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {submitting ? "Please wait..." : content.buttonLabel}
+              {submitting ? t("common.pleaseWait") : content.buttonLabel}
             </button>
           </form>
 

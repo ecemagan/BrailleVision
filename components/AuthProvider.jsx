@@ -128,6 +128,14 @@ export function AuthProvider({ children }) {
     document.documentElement.dataset.theme = preferences.themeMode;
     document.documentElement.dataset.accent = preferences.themeAccent;
     document.documentElement.dataset.density = preferences.dashboardDensity;
+
+    try {
+      window.localStorage.setItem("braillevision-theme", preferences.themeMode);
+      window.localStorage.setItem("braillevision-accent", preferences.themeAccent);
+      window.localStorage.setItem("braillevision-density", preferences.dashboardDensity);
+    } catch {
+      // no-op
+    }
   }, [profile]);
 
   const value = {
