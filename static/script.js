@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
             video.srcObject = stream;
         } catch (err) {
             console.error("Camera access denied or unavailable", err);
-            alert("Kameraya erişilemedi. Lütfen izinleri kontrol edin.");
+            alert("Camera access could not be granted. Please check your permissions.");
         }
     }
 
@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (file.type.startsWith('image/')) {
             processFile(file, '/api/process_document');
         } else {
-            alert('Lütfen PDF veya Görsel formatında bir dosya yükleyin.');
+            alert('Please upload a file in PDF or image format.');
         }
     }
 
@@ -103,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
     translateTextBtn.addEventListener('click', () => {
         const text = mathTextInput.value.trim();
         if (!text) {
-            alert('Lütfen çevrilecek matematiksel ifadeyi girin.');
+            alert('Please enter the mathematical expression to translate.');
             return;
         }
         processText(text);
@@ -119,12 +119,12 @@ document.addEventListener('DOMContentLoaded', () => {
     translateAlphaBtn.addEventListener('click', async () => {
         const text = alphaTextInput.value.trim();
         if (!text) {
-            alert('Lütfen çevrilecek metni girin.');
+            alert('Please enter the text to translate.');
             return;
         }
 
         translateAlphaBtn.disabled = true;
-        translateAlphaBtn.textContent = 'Çevriliyor...';
+        translateAlphaBtn.textContent = 'Converting...';
         alphaResult.classList.add('hidden');
 
         try {
@@ -136,14 +136,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 const err = await response.json();
-                throw new Error(err.detail || 'Bir hata oluştu');
+                throw new Error(err.detail || 'Something went wrong');
             }
 
             const data = await response.json();
             alphaOutput.textContent = data.braille;
             alphaResult.classList.remove('hidden');
         } catch (error) {
-            alert('Hata: ' + error.message);
+            alert('Error: ' + error.message);
         } finally {
             translateAlphaBtn.disabled = false;
             translateAlphaBtn.textContent = 'Braille Alfabesine Çevir';
@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
     alphaDownloadBtn.addEventListener('click', () => {
         const original = alphaTextInput.value.trim();
         const braille = alphaOutput.textContent;
-        const content = `${braille}\\n`;
+        const content = `Original Text:\n${original}\n\nBraille Translation:\n${braille}\n`;
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -181,14 +181,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 const err = await response.json();
-                throw new Error(err.detail || 'Bir hata oluştu');
+                throw new Error(err.detail || 'Something went wrong');
             }
 
             const data = await response.json();
             renderResults(data.results);
             
         } catch (error) {
-            alert('Hata: ' + error.message);
+            alert('Error: ' + error.message);
         } finally {
             setLoading(false);
         }
@@ -216,14 +216,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 const err = await response.json();
-                throw new Error(err.detail || 'Bir hata oluştu');
+                throw new Error(err.detail || 'Something went wrong');
             }
 
             const data = await response.json();
             renderResults(data.results);
             
         } catch (error) {
-            alert('Hata: ' + error.message);
+            alert('Error: ' + error.message);
         } finally {
             setLoading(false);
         }
@@ -239,19 +239,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderResults(results) {
         if (!results || results.length === 0) {
-            resultsContent.innerHTML = '<p style="color:var(--text-secondary)">Belgede matematiksel ifade bulunamadı veya dönüştürülemedi.</p>';
+            resultsContent.innerHTML = '<p style="color:var(--text-secondary)">No mathematical expression was found in the document or it could not be converted.</p>';
         } else {
             results.forEach(res => {
                 const card = document.createElement('div');
                 card.className = 'result-card';
                 
-                let errorHtml = res.error ? `<div class="error-text">Hata: ${res.error}</div>` : '';
+                let errorHtml = res.error ? `<div class="error-text">Error: ${res.error}</div>` : '';
                 
                 let expSafe = res.explanation ? res.explanation.replace(/'/g, "\\'") : '';
                 let explanationHtml = res.explanation ? `
                     <div class="label" style="display:flex; justify-content:space-between; align-items:center;">
-                        AI Açıklaması 
-                        <button class="tts-btn" onclick="window.speakText('${expSafe}')">🔊 Dinle</button>
+                        AI explanation 
+                        <button class="tts-btn" onclick="window.speakText('${expSafe}')">🔊 Listen</button>
                     </div>
                     <div class="explanation-text">${escapeHtml(res.explanation)}</div>
                 ` : '';
@@ -260,14 +260,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 let brailleSafe = res.braille ? res.braille.replace(/'/g, "\\'") : '';
                 
                 card.innerHTML = `
-                    <div class="label">Matematiksel İfade</div>
+                    <div class="label">Mathematical expression</div>
                     <div class="math-expr">${escapeHtml(res.expression)}</div>
                     ${explanationHtml}
                     <div class="label">Nemeth Braille</div>
                     <div class="braille-output">${res.braille}</div>
                     ${errorHtml}
                     <div class="card-actions">
-                        <button class="export-btn" onclick="window.downloadTxt('${mathSafe}', '${brailleSafe}')">📥 İndir (.brf/.txt)</button>
+                        <button class="export-btn" onclick="window.downloadTxt('${mathSafe}', '${brailleSafe}')">📥 Download (.brf/.txt)</button>
                     </div>
                 `;
                 resultsContent.appendChild(card);
@@ -292,20 +292,20 @@ window.speakText = function(text) {
     if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
         const msg = new SpeechSynthesisUtterance(text);
-        msg.lang = 'tr-TR';
+        msg.lang = 'en-US';
         window.speechSynthesis.speak(msg);
     } else {
-        alert("Tarayıcınız sesli okumayı desteklemiyor.");
+        alert("Your browser does not support speech synthesis.");
     }
 };
 
 window.downloadTxt = function(math, braille) {
-    const content = `Matematiksel İfade:\n${math}\n\nNemeth Braille Çevirisi:\n${braille}\n`;
+    const content = `Mathematical Expression:\n${math}\n\nNemeth Braille Translation:\n${braille}\n`;
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'BrailleVision_Ceviri.txt';
+    a.download = 'BrailleVision_Translation.txt';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

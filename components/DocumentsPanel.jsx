@@ -1,30 +1,17 @@
 "use client";
 
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { exportDocuments } from "@/lib/exportDocuments";
+import { buildSearchableDocumentText } from "@/lib/documents";
+import { useI18n } from "@/components/I18nProvider";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
 
-const filterOptions = [
-  { key: "active", label: "Active" },
-  { key: "favorites", label: "Favorites" },
-  { key: "archived", label: "Archived" },
-  { key: "all", label: "All" },
-];
-
-function formatDocumentDate(value) {
-  return new Intl.DateTimeFormat("en", {
+function formatDocumentDate(value, locale) {
+  return new Intl.DateTimeFormat(locale === "tr" ? "tr-TR" : "en-US", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function downloadBrailleText(fileName, brailleText) {
-  const blob = new Blob([brailleText], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${fileName.replace(/\.[^/.]+$/, "")}-braille.txt`;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 function truncateText(value, maxLength = 180) {
@@ -35,160 +22,288 @@ function truncateText(value, maxLength = 180) {
   return value.length > maxLength ? `${value.slice(0, maxLength).trim()}...` : value;
 }
 
-function getSourceLabel(sourceType) {
-  const labels = {
-    manual: "Manual / TXT",
-    pdf: "PDF",
-    image: "Image OCR",
-    camera: "Camera OCR",
-    "word-addin": "Word Add-in",
-  };
+function arraysEqual(left, right) {
+  if (left.length !== right.length) {
+    return false;
+  }
 
-  return labels[sourceType] || "Manual / TXT";
+  return left.every((item, index) => item === right[index]);
 }
 
-function getModeLabel(conversionMode) {
-  const labels = {
-    text: "Text",
-    nemeth: "Nemeth",
-    ocr: "OCR",
-  };
-
-  return labels[conversionMode] || "Text";
-}
-
-function getEmptyStateCopy(filterKey) {
+function getEmptyStateCopy(filterKey, t) {
   if (filterKey === "favorites") {
     return {
-      title: "No favorites yet",
-      description: "Star important conversions to keep them pinned here for quick access.",
+      title: t("documents.noFavorites"),
+      description: "",
     };
   }
 
   if (filterKey === "archived") {
     return {
-      title: "Archive is empty",
-      description: "Archived conversions will appear here after you move them out of the active library.",
+      title: t("documents.archiveEmpty"),
+      description: "",
     };
   }
 
   if (filterKey === "all") {
     return {
-      title: "No saved documents yet",
-      description: "Use the upload tab or the Word add-in to create and save your first Braille conversion.",
+      title: t("documents.noSavedDocuments"),
+      description: "",
     };
   }
 
   return {
-    title: "No active documents",
-    description: "Your active library is empty. Upload new content or restore items from the archive.",
+    title: t("documents.noActiveDocuments"),
+    description: "",
   };
 }
 
-function DocumentBadges({ document }) {
+function getDocumentType(document) {
+  if (document.source_type === "pdf") {
+    return "pdf";
+  }
+
+  if (document.source_type === "image" || document.source_type === "camera") {
+    return "image";
+  }
+
+  return "text";
+}
+
+function getDocumentTypeLabel(type, t) {
+  if (type === "pdf") {
+    return t("documents.typePdf");
+  }
+
+  if (type === "image") {
+    return t("documents.typeImage");
+  }
+
+  return t("documents.typeText");
+}
+
+function getDateFilterMatch(document, dateFilter) {
+  if (dateFilter === "all") {
+    return true;
+  }
+
+  const createdAt = new Date(document.created_at).getTime();
+  const now = Date.now();
+
+  if (dateFilter === "today") {
+    return createdAt >= now - 24 * 60 * 60 * 1000;
+  }
+
+  if (dateFilter === "7d") {
+    return createdAt >= now - 7 * 24 * 60 * 60 * 1000;
+  }
+
+  if (dateFilter === "30d") {
+    return createdAt >= now - 30 * 24 * 60 * 60 * 1000;
+  }
+
+  return true;
+}
+
+function DocumentBadges({ document, t }) {
+  const documentType = getDocumentType(document);
+  const isMath = document.conversion_mode === "nemeth";
+
   return (
     <div className="mt-3 flex flex-wrap gap-2">
-      <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
-        {getSourceLabel(document.source_type)}
+      <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+        {getDocumentTypeLabel(documentType, t)}
       </span>
-      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-        {getModeLabel(document.conversion_mode)}
+      <span
+        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+          isMath ? "border border-amber-200 bg-amber-50 text-amber-700" : "border border-emerald-200 bg-emerald-50 text-emerald-700"
+        }`}
+      >
+        {isMath ? t("documents.modeMath") : t("documents.modeText")}
       </span>
       {document.is_favorite ? (
-        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Favorite</span>
+        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">{t("documents.favorite")}</span>
       ) : null}
       {document.is_archived ? (
-        <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Archived</span>
+        <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">{t("documents.archived")}</span>
       ) : null}
+      {(document.tags || []).slice(0, 3).map((tag) => (
+        <span key={tag} className="rounded-full border border-violet-200 bg-white px-3 py-1 text-xs font-semibold text-violet-700">
+          #{tag}
+        </span>
+      ))}
     </div>
   );
 }
 
-export function DocumentsPanel({ documents, loading, errorMessage, supabase, onDocumentsChanged, variant = "full" }) {
+export function DocumentsPanel({
+  documents,
+  loading,
+  errorMessage,
+  supabase,
+  onDocumentsChanged,
+  onNotify,
+  onCreateFirstDocument,
+  variant = "full",
+  density = "comfortable",
+  focusSearchSignal = 0,
+}) {
   const isCompact = variant === "compact";
+  const isDense = density === "compact";
+  const { t, locale } = useI18n();
+  const searchInputRef = useRef(null);
   const [searchValue, setSearchValue] = useState("");
   const [activeFilter, setActiveFilter] = useState("active");
-  const [selectedDocumentId, setSelectedDocumentId] = useState(null);
+  const [dateFilter, setDateFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [viewMode, setViewMode] = useState("grid");
   const [selectedIds, setSelectedIds] = useState([]);
-  const [renameTargetId, setRenameTargetId] = useState("");
-  const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [previewDocumentId, setPreviewDocumentId] = useState(null);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [isClient, setIsClient] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [busyActionKey, setBusyActionKey] = useState("");
+  const [selectedExportFormat, setSelectedExportFormat] = useState("txt");
+  const flaggedIndices = [2, 7, 12];
   const deferredSearch = useDeferredValue(searchValue);
-
-  const visibleDocuments = documents
-    .filter((document) => {
-      if (isCompact) {
-        return true;
-      }
-
-      if (activeFilter === "favorites") {
-        return document.is_favorite && !document.is_archived;
-      }
-
-      if (activeFilter === "archived") {
-        return document.is_archived;
-      }
-
-      if (activeFilter === "all") {
-        return true;
-      }
-
-      return !document.is_archived;
-    })
-    .filter((document) => {
-      if (!deferredSearch.trim()) {
-        return true;
-      }
-
-      const query = deferredSearch.trim().toLowerCase();
-
-      return [
-        document.file_name,
-        document.original_text,
-        document.braille_text,
-        document.source_type,
-        document.conversion_mode,
-      ]
-        .filter(Boolean)
-        .some((field) => field.toLowerCase().includes(query));
-    });
+  const filterOptions = [
+    { key: "active", label: t("documents.active") },
+    { key: "favorites", label: t("documents.favorites") },
+    { key: "archived", label: t("documents.archived") },
+    { key: "all", label: t("documents.all") },
+  ];
+  const dateFilterOptions = [
+    { key: "all", label: t("documents.dateAll") },
+    { key: "today", label: t("documents.dateToday") },
+    { key: "7d", label: t("documents.date7Days") },
+    { key: "30d", label: t("documents.date30Days") },
+  ];
+  const typeFilterOptions = [
+    { key: "all", label: t("documents.typeAll") },
+    { key: "pdf", label: t("documents.typePdf") },
+    { key: "image", label: t("documents.typeImage") },
+    { key: "text", label: t("documents.typeText") },
+  ];
+  const exportFormatOptions = [
+    { value: "txt", label: ".txt" },
+    { value: "docx", label: ".docx" },
+    { value: "pdf", label: ".pdf" },
+  ];
+  const previewDocument = useMemo(
+    () => (previewDocumentId ? documents.find((document) => document.id === previewDocumentId) ?? null : null),
+    [documents, previewDocumentId],
+  );
+  const originalWords = useMemo(
+    () => (previewDocument?.original_text ? previewDocument.original_text.split(" ") : []),
+    [previewDocument],
+  );
+  const brailleWords = useMemo(
+    () => (previewDocument?.braille_text ? previewDocument.braille_text.split(" ") : []),
+    [previewDocument],
+  );
 
   useEffect(() => {
-    if (visibleDocuments.length === 0) {
-      setSelectedDocumentId(null);
-      setSelectedIds([]);
-      return;
-    }
-
-    if (!visibleDocuments.some((document) => document.id === selectedDocumentId)) {
-      setSelectedDocumentId(visibleDocuments[0].id);
-    }
-
-    setSelectedIds((currentIds) => currentIds.filter((id) => visibleDocuments.some((document) => document.id === id)));
-  }, [visibleDocuments, selectedDocumentId]);
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
-    if (!deleteTarget) {
-      document.body.style.overflow = "";
+    if (!isCompact && focusSearchSignal > 0) {
+      window.setTimeout(() => searchInputRef.current?.focus(), 0);
+    }
+  }, [focusSearchSignal, isCompact]);
+
+  useEffect(() => {
+    if (!previewDocument && !deleteTarget) {
       return undefined;
     }
 
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setDeleteTarget(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteTarget, previewDocument]);
+
+  useEffect(() => {
+    if (!previewDocument) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
     };
-  }, [deleteTarget]);
+  }, [previewDocument]);
 
-  const selectedDocument =
-    visibleDocuments.find((document) => document.id === selectedDocumentId) ?? visibleDocuments[0] ?? null;
+  const availableTags = useMemo(() => {
+    const uniqueTags = new Set();
+    documents.forEach((document) => {
+      (document.tags || []).forEach((tag) => uniqueTags.add(tag));
+    });
+    return Array.from(uniqueTags).sort((left, right) => left.localeCompare(right));
+  }, [documents]);
+
+  const visibleDocuments = useMemo(
+    () =>
+      documents
+        .filter((document) => {
+          if (isCompact) {
+            return !document.is_archived;
+          }
+
+          if (activeFilter === "favorites") {
+            return document.is_favorite && !document.is_archived;
+          }
+
+          if (activeFilter === "archived") {
+            return document.is_archived;
+          }
+
+          if (activeFilter === "all") {
+            return true;
+          }
+
+          return !document.is_archived;
+        })
+        .filter((document) => (typeFilter === "all" ? true : getDocumentType(document) === typeFilter))
+        .filter((document) => getDateFilterMatch(document, dateFilter))
+        .filter((document) => (tagFilter === "all" ? true : (document.tags || []).includes(tagFilter)))
+        .filter((document) => {
+          if (!deferredSearch.trim()) {
+            return true;
+          }
+
+          return buildSearchableDocumentText(document).includes(deferredSearch.trim().toLowerCase());
+        }),
+    [activeFilter, dateFilter, deferredSearch, documents, isCompact, tagFilter, typeFilter],
+  );
+
+  useEffect(() => {
+    setSelectedIds((currentIds) => {
+      const nextIds = currentIds.filter((id) => visibleDocuments.some((document) => document.id === id));
+      return arraysEqual(currentIds, nextIds) ? currentIds : nextIds;
+    });
+  }, [visibleDocuments]);
+
   const selectedDocuments = documents.filter((document) => selectedIds.includes(document.id));
-  const favoriteCount = documents.filter((document) => document.is_favorite && !document.is_archived).length;
-  const archivedCount = documents.filter((document) => document.is_archived).length;
-  const activeCount = documents.filter((document) => !document.is_archived).length;
+  const emptyCopy = getEmptyStateCopy(activeFilter, t);
+
+  function openPreview(documentId) {
+    setPreviewDocumentId(documentId);
+  }
+
+  function closePreview() {
+    setPreviewDocumentId(null);
+    setHoveredIndex(null);
+  }
 
   function resetMessages() {
     setActionError("");
@@ -212,7 +327,9 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
 
   async function runDocumentMutation(actionKey, work, successMessage) {
     if (!supabase) {
-      setActionError("Supabase is not connected yet. Refresh the page and try again.");
+      const message = t("documents.supabaseMissing");
+      setActionError(message);
+      onNotify?.({ type: "error", title: t("documents.connectionMissing"), message });
       return;
     }
 
@@ -223,85 +340,74 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
       await work();
       await onDocumentsChanged?.();
       setActionMessage(successMessage);
+      onNotify?.({ type: "success", title: t("documents.libraryUpdated"), message: successMessage });
     } catch (error) {
-      setActionError(getFriendlyDocumentMessage(error, "The document update could not be completed."));
+      const friendlyMessage = getFriendlyDocumentMessage(error, t("documents.updateFailed"));
+      setActionError(friendlyMessage);
+      onNotify?.({ type: "error", title: t("documents.updateFailedTitle"), message: friendlyMessage });
     } finally {
       setBusyActionKey("");
     }
   }
 
-  async function handleCopyBraille(document) {
+  async function handleCopyBraille(documentToCopy) {
     try {
-      await navigator.clipboard.writeText(document.braille_text);
+      await navigator.clipboard.writeText(documentToCopy.braille_text);
       setActionError("");
-      setActionMessage(`Braille copied from ${document.file_name}.`);
+      setActionMessage(t("documents.brailleCopiedFrom", { name: documentToCopy.file_name }));
+      onNotify?.({
+        type: "success",
+        title: t("documents.brailleCopiedTitle"),
+        message: t("documents.brailleCopiedMessage", { name: documentToCopy.file_name }),
+      });
     } catch (error) {
-      setActionError(getFriendlyDocumentMessage(error, "Clipboard access is blocked in this browser tab."));
+      const friendlyMessage = getFriendlyDocumentMessage(error, t("documents.clipboardBlocked"));
+      setActionError(friendlyMessage);
       setActionMessage("");
+      onNotify?.({
+        type: "error",
+        title: t("documents.clipboardBlockedTitle"),
+        message: friendlyMessage,
+      });
     }
   }
 
-  async function handleToggleFavorite(document) {
+  async function handleToggleFavorite(documentToUpdate) {
     await runDocumentMutation(
-      `favorite:${document.id}`,
+      `favorite:${documentToUpdate.id}`,
       async () => {
         const { error } = await supabase
           .from("documents")
-          .update({ is_favorite: !document.is_favorite })
-          .eq("id", document.id);
+          .update({ is_favorite: !documentToUpdate.is_favorite })
+          .eq("id", documentToUpdate.id);
 
         if (error) {
           throw error;
         }
       },
-      document.is_favorite ? "Document removed from favorites." : "Document added to favorites.",
+      documentToUpdate.is_favorite ? t("documents.removedFromFavorites") : t("documents.addedToFavorites"),
     );
   }
 
-  async function handleToggleArchive(document) {
+  async function handleToggleArchive(documentToUpdate) {
     await runDocumentMutation(
-      `archive:${document.id}`,
+      `archive:${documentToUpdate.id}`,
       async () => {
-        const nextArchivedState = !document.is_archived;
+        const nextArchivedState = !documentToUpdate.is_archived;
         const { error } = await supabase
           .from("documents")
           .update({
             is_archived: nextArchivedState,
             archived_at: nextArchivedState ? new Date().toISOString() : null,
           })
-          .eq("id", document.id);
+          .eq("id", documentToUpdate.id);
 
         if (error) {
           throw error;
         }
       },
-      document.is_archived ? "Document restored to the active library." : "Document moved to the archive.",
+      documentToUpdate.is_archived ? t("documents.restoredToActive") : t("documents.movedToArchive"),
     );
-  }
-
-  async function handleRename(document) {
-    if (!renameValue.trim()) {
-      setActionError("Enter a file name before saving the rename.");
-      return;
-    }
-
-    await runDocumentMutation(
-      `rename:${document.id}`,
-      async () => {
-        const { error } = await supabase
-          .from("documents")
-          .update({ file_name: renameValue.trim() })
-          .eq("id", document.id);
-
-        if (error) {
-          throw error;
-        }
-      },
-      "Document name updated.",
-    );
-
-    setRenameTargetId("");
-    setRenameValue("");
   }
 
   async function handleBulkArchive() {
@@ -326,7 +432,7 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
           throw error;
         }
       },
-      shouldArchive ? "Selected documents moved to the archive." : "Selected documents restored from the archive.",
+      shouldArchive ? t("documents.selectedMovedToArchive") : t("documents.selectedRestoredFromArchive"),
     );
 
     setSelectedIds([]);
@@ -351,7 +457,7 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
           throw error;
         }
       },
-      shouldFavorite ? "Selected documents added to favorites." : "Selected documents removed from favorites.",
+      shouldFavorite ? t("documents.selectedAddedToFavorites") : t("documents.selectedRemovedFromFavorites"),
     );
   }
 
@@ -371,75 +477,94 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
           throw error;
         }
       },
-      idsToDelete.length === 1 ? "Saved conversion deleted." : `${idsToDelete.length} saved conversions deleted.`,
+      idsToDelete.length === 1 ? t("documents.savedConversionDeleted") : t("documents.savedConversionsDeleted", { count: idsToDelete.length }),
     );
 
     setDeleteTarget(null);
     setSelectedIds([]);
   }
 
-  const emptyCopy = getEmptyStateCopy(activeFilter);
+  async function handleExportDocuments(itemsToExport, format = selectedExportFormat) {
+    if (!itemsToExport.length) {
+      return;
+    }
+
+    setBusyActionKey("export");
+    resetMessages();
+
+    try {
+      await exportDocuments(itemsToExport, format);
+      const message =
+        itemsToExport.length === 1
+          ? t("documents.exportCompleteMessageSingle", { name: itemsToExport[0].file_name, format: format.toUpperCase() })
+          : t("documents.exportCompleteMessageMultiple", { count: itemsToExport.length, format: format.toUpperCase() });
+      setActionMessage(message);
+      onNotify?.({
+        type: "success",
+        title: t("documents.exportComplete"),
+        message,
+      });
+    } catch (error) {
+      const friendlyMessage = getFriendlyDocumentMessage(error, t("documents.exportFailed"));
+      setActionError(friendlyMessage);
+      onNotify?.({ type: "error", title: t("documents.exportFailedTitle"), message: friendlyMessage });
+    } finally {
+      setBusyActionKey("");
+    }
+  }
 
   return (
-    <section className="surface-card rounded-[28px] p-6 md:p-8">
+    <section className={`surface-card ${isDense ? "rounded-2xl p-5 md:p-6" : "rounded-2xl p-6 md:p-8"}`}>
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">
-            {isCompact ? "Recent Documents" : "My Documents"}
-          </p>
-          <h2 className="font-display mt-2 text-3xl font-bold text-slate-950">
-            {isCompact ? "Latest saved conversions" : "Conversion library"}
+          <h2 className="mt-2 text-4xl font-bold tracking-tight text-slate-950 md:text-[2.8rem]">
+            {isCompact ? t("documents.recentDocuments") : t("documents.library")}
           </h2>
         </div>
-        <p className="max-w-xl text-sm leading-6 text-slate-600">
-          {isCompact
-            ? "Your latest active conversions from the documents table."
-            : "Rename, favorite, archive, restore, and bulk-manage saved conversions without leaving the dashboard."}
-        </p>
       </div>
 
       {errorMessage ? (
-        <p className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {errorMessage}
-        </p>
+        <p className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errorMessage}</p>
       ) : null}
 
       {actionError ? (
-        <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {actionError}
-        </p>
+        <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</p>
       ) : null}
 
-      {actionMessage ? (
-        <p className="mt-4 rounded-2xl border border-violet-200 bg-violet-50/80 px-4 py-3 text-sm text-violet-700">
-          {actionMessage}
-        </p>
-      ) : null}
+      {actionMessage ? <p className="info-chip mt-4 rounded-2xl px-4 py-3 text-sm font-semibold">{actionMessage}</p> : null}
 
       {loading ? (
         <div className="mt-8 grid gap-4">
           {[1, 2, 3].map((item) => (
-            <div key={item} className="animate-pulse rounded-[24px] border border-slate-200 bg-white p-5">
-              <div className="flex items-center gap-3">
-                <div className="h-5 w-5 rounded bg-slate-200" />
-                <div className="h-4 w-44 rounded bg-slate-200" />
-              </div>
-              <div className="mt-4 h-3 w-32 rounded bg-slate-100" />
-              <div className="mt-4 grid gap-2">
-                <div className="h-3 w-full rounded bg-slate-100" />
-                <div className="h-3 w-5/6 rounded bg-slate-100" />
-              </div>
+            <div key={item} className="glass-card animate-pulse rounded-2xl p-5">
+              <div className="h-4 w-40 rounded bg-slate-200" />
+              <div className="mt-3 h-3 w-28 rounded bg-slate-100" />
+              <div className="mt-4 h-3 w-full rounded bg-slate-100" />
+              <div className="mt-2 h-3 w-5/6 rounded bg-slate-100" />
             </div>
           ))}
         </div>
       ) : null}
 
       {!loading && documents.length === 0 ? (
-        <div className="mt-8 rounded-[24px] border border-dashed border-slate-300 bg-white p-8 text-center">
-          <p className="font-display text-2xl font-bold text-slate-950">No saved documents yet</p>
-          <p className="mt-2 text-slate-600">
-            Use the upload tab or the Word add-in to create, save, and manage your first Braille conversion.
-          </p>
+        <div className="glass-card mt-10 flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 p-8 text-center">
+          <div className="relative mb-6 h-24 w-40">
+            <div className="absolute inset-x-0 bottom-0 h-2 rounded-full bg-violet-200/70" />
+            <div className="absolute left-3 top-8 h-14 w-7 rounded-md border border-violet-200 bg-violet-50" />
+            <div className="absolute left-12 top-4 h-16 w-7 rounded-md border border-violet-200 bg-white" />
+            <div className="absolute left-[5.25rem] top-10 h-12 w-7 rounded-md border border-violet-200 bg-violet-50/70" />
+            <div className="absolute left-[7.5rem] top-2 h-20 w-7 rounded-md border border-violet-200 bg-white" />
+          </div>
+          <p className="max-w-xl text-lg font-semibold text-slate-900">{t("documents.emptyLibraryDescription")}</p>
+          <div className="mt-7">
+            <button
+              type="button"
+              onClick={onCreateFirstDocument}
+              className="button-primary rounded-full px-7 py-3.5 text-base font-semibold transition"
+            >
+              {t("documents.startConversion")}
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -447,35 +572,93 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
         <div className="mt-8 space-y-6">
           {!isCompact ? (
             <>
-              <div className="surface-soft rounded-[24px] p-4 md:p-5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex flex-1 flex-col gap-3">
+              <div className="surface-muted rounded-2xl p-4 md:p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="flex-1">
                     <label className="text-sm font-semibold text-slate-700" htmlFor="document-search">
-                      Search saved conversions
+                      {t("documents.searchLibrary")}
                     </label>
                     <input
+                      ref={searchInputRef}
                       id="document-search"
                       type="search"
                       value={searchValue}
                       onChange={(event) => setSearchValue(event.target.value)}
-                      placeholder="Search by file name, source text, Braille output, source type, or mode"
-                      className="field-input rounded-2xl px-4 py-3 text-slate-950 outline-none transition"
+                      placeholder={t("documents.searchPlaceholder")}
+                      className="field-input mt-2 w-full rounded-2xl px-4 py-3 text-slate-950 outline-none transition"
                     />
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-[20px] border border-white/60 bg-white/75 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-600">Active</p>
-                      <p className="mt-2 font-display text-2xl font-bold text-slate-950">{activeCount}</p>
-                    </div>
-                    <div className="rounded-[20px] border border-white/60 bg-white/75 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-600">Favorites</p>
-                      <p className="mt-2 font-display text-2xl font-bold text-slate-950">{favoriteCount}</p>
-                    </div>
-                    <div className="rounded-[20px] border border-white/60 bg-white/75 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-600">Archived</p>
-                      <p className="mt-2 font-display text-2xl font-bold text-slate-950">{archivedCount}</p>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("grid")}
+                      className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                        viewMode === "grid" ? "button-primary text-white" : "button-secondary"
+                      }`}
+                    >
+                      ⠿ {t("documents.grid")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("list")}
+                      className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                        viewMode === "list" ? "button-primary text-white" : "button-secondary"
+                      }`}
+                    >
+                      ☰ {t("documents.list")}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="date-filter">
+                      {t("documents.date")}
+                    </label>
+                    <select
+                      id="date-filter"
+                      value={dateFilter}
+                      onChange={(event) => setDateFilter(event.target.value)}
+                      className="field-input mt-2 w-full rounded-2xl px-4 py-2.5 outline-none transition"
+                    >
+                      {dateFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="tag-filter">
+                      {t("documents.tag")}
+                    </label>
+                    <select
+                      id="tag-filter"
+                      value={tagFilter}
+                      onChange={(event) => setTagFilter(event.target.value)}
+                      className="field-input mt-2 w-full rounded-2xl px-4 py-2.5 outline-none transition"
+                    >
+                      <option value="all">{t("documents.tagAll")}</option>
+                      {availableTags.map((tag) => (
+                        <option key={tag} value={tag}>#{tag}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="type-filter">
+                      {t("documents.type")}
+                    </label>
+                    <select
+                      id="type-filter"
+                      value={typeFilter}
+                      onChange={(event) => setTypeFilter(event.target.value)}
+                      className="field-input mt-2 w-full rounded-2xl px-4 py-2.5 outline-none transition"
+                    >
+                      {typeFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>{option.label}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -496,10 +679,10 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
               </div>
 
               {selectedIds.length > 0 ? (
-                <div className="surface-card rounded-[24px] border border-violet-200 bg-violet-50/65 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="surface-muted rounded-2xl p-4">
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <p className="text-sm font-semibold text-violet-800">
-                      {selectedIds.length} document{selectedIds.length > 1 ? "s" : ""} selected
+                      {t("documents.selected", { count: selectedIds.length })}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -508,7 +691,7 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
                         disabled={Boolean(busyActionKey)}
                         className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition disabled:opacity-60"
                       >
-                        Toggle favorite
+                        {t("documents.toggleFavorite")}
                       </button>
                       <button
                         type="button"
@@ -516,7 +699,26 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
                         disabled={Boolean(busyActionKey)}
                         className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition disabled:opacity-60"
                       >
-                        Archive / Restore
+                        {t("documents.archiveRestore")}
+                      </button>
+                      <select
+                        value={selectedExportFormat}
+                        onChange={(event) => setSelectedExportFormat(event.target.value)}
+                        className="field-input rounded-full px-4 py-2 outline-none transition"
+                      >
+                        {exportFormatOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleExportDocuments(selectedDocuments)}
+                        disabled={Boolean(busyActionKey)}
+                        className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition disabled:opacity-60"
+                      >
+                        {t("documents.export")}
                       </button>
                       <button
                         type="button"
@@ -524,248 +726,282 @@ export function DocumentsPanel({ documents, loading, errorMessage, supabase, onD
                         disabled={Boolean(busyActionKey)}
                         className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition disabled:opacity-60"
                       >
-                        Bulk delete
+                        {t("documents.delete")}
                       </button>
                     </div>
                   </div>
                 </div>
               ) : null}
+
+              {visibleDocuments.length > 0 ? (
+                <div className="flex items-center justify-start gap-3">
+                  <button
+                    type="button"
+                    onClick={selectAllVisible}
+                    className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
+                  >
+                    {selectedIds.length === visibleDocuments.length ? t("documents.clearSelection") : t("documents.selectVisible")}
+                  </button>
+                </div>
+              ) : null}
             </>
           ) : null}
 
-          {!isCompact && visibleDocuments.length > 0 ? (
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={selectAllVisible}
-                className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
-              >
-                {selectedIds.length === visibleDocuments.length ? "Clear selection" : "Select visible"}
-              </button>
-              <p className="text-sm text-slate-600">{visibleDocuments.length} documents match this view.</p>
-            </div>
-          ) : null}
-
           {visibleDocuments.length > 0 ? (
-            <div className={isCompact ? "grid gap-4" : "grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_360px]"}>
-              <div className="grid gap-4">
-                {visibleDocuments.map((document) => {
-                  const isSelected = document.id === selectedDocument?.id;
-                  const isRenaming = renameTargetId === document.id;
-
-                  return (
-                    <article
-                      key={document.id}
-                      className={`rounded-[24px] border p-5 transition ${
-                        isSelected && !isCompact
-                          ? "border-violet-300 bg-white shadow-[0_24px_60px_rgba(124,58,237,0.12)]"
-                          : "border-slate-200 bg-white"
-                      }`}
+            <div className={`grid gap-4 ${viewMode === "grid" ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "grid-cols-1"}`}>
+              {visibleDocuments.map((documentToRender) => (
+                <article
+                  key={documentToRender.id}
+                  className="glass-card rounded-2xl p-5 transition"
+                >
+                  <div className="flex flex-col gap-4">
+                    <button
+                      type="button"
+                      onClick={() => openPreview(documentToRender.id)}
+                      className="rounded-2xl border border-slate-700/70 bg-slate-900 p-4 text-left shadow-[inset_0_0_20px_rgba(15,23,42,0.7)] transition"
                     >
-                      <div className="flex flex-col gap-4">
-                        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                          <div className="flex flex-1 gap-3">
-                            {!isCompact ? (
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.includes(document.id)}
-                                onChange={() => toggleSelection(document.id)}
-                                className="mt-2 h-4 w-4 rounded border-slate-300 text-violet-600"
-                              />
-                            ) : null}
-
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                {isRenaming ? (
-                                  <>
-                                    <input
-                                      value={renameValue}
-                                      onChange={(event) => setRenameValue(event.target.value)}
-                                      className="field-input rounded-2xl px-4 py-2 text-base font-semibold outline-none"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRename(document)}
-                                      disabled={busyActionKey === `rename:${document.id}`}
-                                      className="button-primary rounded-full px-3 py-2 text-xs font-semibold transition disabled:opacity-60"
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setRenameTargetId("");
-                                        setRenameValue("");
-                                      }}
-                                      className="button-secondary rounded-full px-3 py-2 text-xs font-semibold transition"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <h3 className="font-display truncate text-2xl font-bold text-slate-950">{document.file_name}</h3>
-                                    {!isCompact ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedDocumentId(document.id)}
-                                        className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 transition hover:border-violet-300 hover:bg-violet-100"
-                                      >
-                                        {isSelected ? "Focused" : "Open"}
-                                      </button>
-                                    ) : null}
-                                  </>
-                                )}
-                              </div>
-
-                              <p className="mt-1 text-sm text-slate-500">{formatDocumentDate(document.created_at)}</p>
-                              <DocumentBadges document={document} />
-                              <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-                                {truncateText(document.original_text)}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap gap-2 md:justify-end">
-                            <button
-                              type="button"
-                              onClick={() => downloadBrailleText(document.file_name, document.braille_text)}
-                              className="button-primary rounded-full px-4 py-3 text-sm font-semibold transition"
-                            >
-                              Download
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyBraille(document)}
-                              className="button-secondary rounded-full px-4 py-3 text-sm font-semibold transition"
-                            >
-                              Copy
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleFavorite(document)}
-                              disabled={busyActionKey === `favorite:${document.id}`}
-                              className="button-secondary rounded-full px-4 py-3 text-sm font-semibold transition disabled:opacity-60"
-                            >
-                              {document.is_favorite ? "Unfavorite" : "Favorite"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleArchive(document)}
-                              disabled={busyActionKey === `archive:${document.id}`}
-                              className="button-secondary rounded-full px-4 py-3 text-sm font-semibold transition disabled:opacity-60"
-                            >
-                              {document.is_archived ? "Restore" : "Archive"}
-                            </button>
-                            {!isRenaming ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setRenameTargetId(document.id);
-                                  setRenameValue(document.file_name);
-                                }}
-                                className="button-secondary rounded-full px-4 py-3 text-sm font-semibold transition"
-                              >
-                                Rename
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget({ type: "single", ...document })}
-                              className="rounded-full border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-[auto_auto_1fr]">
-                          <div className="rounded-2xl bg-violet-50/80 px-4 py-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">Characters</p>
-                            <p className="mt-2 text-lg font-semibold text-slate-950">{document.original_text.length}</p>
-                          </div>
-                          <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Updated</p>
-                            <p className="mt-2 text-sm font-semibold text-slate-950">
-                              {formatDocumentDate(document.updated_at || document.created_at)}
-                            </p>
-                          </div>
-                          <div className="rounded-2xl bg-violet-50/70 p-4">
-                            <p className="accent-label text-xs font-semibold uppercase tracking-[0.22em]">Braille preview</p>
-                            <p className="mt-3 break-all text-lg text-slate-950">{truncateText(document.braille_text, 110)}</p>
-                          </div>
-                        </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("documents.braillePreview")}</p>
+                        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-200">
+                          {t("documents.inspectFullText")}
+                        </span>
                       </div>
-                    </article>
-                  );
-                })}
-              </div>
+                      <p className="mt-3 break-all text-lg leading-8 text-amber-100 [text-shadow:0_0_8px_rgba(250,204,21,0.35)]">
+                        {truncateText(documentToRender.braille_text, 120)}
+                      </p>
+                    </button>
 
-              {!isCompact && selectedDocument ? (
-                <aside className="surface-soft rounded-[28px] p-5 lg:sticky lg:top-6 lg:self-start">
-                  <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">Focused Preview</p>
-                  <h3 className="font-display mt-3 text-3xl font-bold text-slate-950">{selectedDocument.file_name}</h3>
-                  <p className="mt-2 text-sm text-slate-500">{formatDocumentDate(selectedDocument.created_at)}</p>
-                  <DocumentBadges document={selectedDocument} />
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-xl font-bold text-slate-950">{documentToRender.file_name}</h3>
+                          <p className="mt-1 text-sm text-slate-500">{formatDocumentDate(documentToRender.created_at, locale)}</p>
+                        </div>
+                        {!isCompact ? (
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(documentToRender.id)}
+                            onChange={() => toggleSelection(documentToRender.id)}
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600"
+                          />
+                        ) : null}
+                      </div>
 
-                  <div className="mt-5 rounded-[24px] bg-[radial-gradient(circle_at_top_right,rgba(216,180,254,0.42),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,238,255,0.92))] p-5 shadow-[0_24px_60px_rgba(124,58,237,0.14)]">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">Original text</p>
-                    <p className="mt-3 text-base leading-7 text-slate-700">{truncateText(selectedDocument.original_text, 360)}</p>
+                      <DocumentBadges document={documentToRender} t={t} />
+                    </div>
 
-                    <div className="mt-5 rounded-[20px] border border-violet-100 bg-white/90 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">Braille output</p>
-                      <p className="mt-3 break-all text-xl leading-8 text-slate-950">{selectedDocument.braille_text}</p>
+                    <div className={`flex flex-wrap gap-2 ${viewMode === "list" ? "md:justify-end" : ""}`}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyBraille(documentToRender)}
+                        className="button-secondary rounded-full px-3.5 py-2 text-xs font-semibold transition"
+                      >
+                        {t("documents.copy")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFavorite(documentToRender)}
+                        disabled={busyActionKey === `favorite:${documentToRender.id}`}
+                        className="button-secondary rounded-full px-3.5 py-2 text-xs font-semibold transition disabled:opacity-60"
+                      >
+                        {documentToRender.is_favorite ? t("documents.unfavorite") : t("documents.favorite")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleArchive(documentToRender)}
+                        disabled={busyActionKey === `archive:${documentToRender.id}`}
+                        className="button-secondary rounded-full px-3.5 py-2 text-xs font-semibold transition disabled:opacity-60"
+                      >
+                        {documentToRender.is_archived ? t("documents.restore") : t("documents.archive")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDeleteTarget({ type: "single", ...documentToRender });
+                        }}
+                        className="rounded-full border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-700 transition"
+                      >
+                        {t("documents.delete")}
+                      </button>
                     </div>
                   </div>
-                </aside>
-              ) : null}
+                </article>
+              ))}
             </div>
           ) : (
             !isCompact && (
-              <div className="rounded-[24px] border border-dashed border-violet-200 bg-white/90 p-8 text-center">
-                <p className="font-display text-2xl font-bold text-slate-950">{emptyCopy.title}</p>
-                <p className="mt-2 text-slate-600">{emptyCopy.description}</p>
+              <div className="glass-card rounded-2xl border border-dashed border-violet-200 p-8 text-center">
+                <p className="text-2xl font-bold text-slate-950">{emptyCopy.title}</p>
               </div>
             )
           )}
         </div>
       ) : null}
 
-      {deleteTarget ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-6 backdrop-blur-sm md:py-12">
-          <div className="surface-card mt-0 w-full max-w-md rounded-[28px] p-6">
-            <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">Delete Conversion</p>
-            <h3 className="font-display mt-3 text-3xl font-bold text-slate-950">
-              {deleteTarget.type === "bulk"
-                ? `${selectedIds.length} selected conversions`
-                : deleteTarget.file_name}
-            </h3>
-            <p className="mt-3 text-base leading-7 text-slate-600">
-              This permanently removes the saved source text and Braille output from your workspace history. Download a copy
-              first if you want to keep it locally.
-            </p>
+      {isClient && previewDocument
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+              onClick={closePreview}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                className="w-full max-w-4xl max-h-[85vh] overflow-y-auto bg-[var(--surface-strong)] rounded-2xl shadow-2xl p-6 flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="border-b border-slate-200 px-5 py-5 md:px-7">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">{t("documents.documentReview")}</p>
+                      <h3 className="mt-2 truncate text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">
+                        {previewDocument.file_name}
+                      </h3>
+                      <p className="mt-2 text-sm text-slate-500">{formatDocumentDate(previewDocument.created_at, locale)}</p>
+                      <DocumentBadges document={previewDocument} t={t} />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyBraille(previewDocument)}
+                        className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
+                      >
+                        {t("documents.copy")}
+                      </button>
+                      {exportFormatOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => handleExportDocuments([previewDocument], option.value)}
+                          className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
+                        >
+                          {t("documents.export")} {option.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={closePreview}
+                        className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
+                      >
+                        {t("common.close")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                disabled={Boolean(busyActionKey)}
-                className="button-secondary rounded-full px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-2">
+                  <article className="flex min-h-0 flex-col border-b border-slate-200 px-5 py-5 lg:border-b-0 lg:border-r lg:px-7">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t("documents.originalText")}</p>
+                    <div className="mt-4 min-h-0 overflow-y-auto whitespace-pre-wrap pr-1 text-base leading-7 text-slate-700">
+                      {originalWords.map((word, index) => (
+                        (() => {
+                          const isFlagged = flaggedIndices.includes(index);
+                          const isHovered = hoveredIndex === index;
+                          let wordClassName = "transition-colors duration-200 cursor-default";
+
+                          if (isFlagged && isHovered) {
+                            wordClassName = "bg-red-500 text-white shadow-md scale-105 ring-2 ring-red-300 z-10 relative transition-colors duration-200 cursor-default";
+                          } else if (isFlagged) {
+                            wordClassName = "bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200 transition-colors duration-200 cursor-default";
+                          } else if (isHovered) {
+                            wordClassName = "bg-[var(--accent)] text-[var(--primary)] transition-colors duration-200 cursor-default";
+                          }
+
+                          return (
+                        <span
+                          key={`original-${index}`}
+                          onMouseEnter={() => setHoveredIndex(index)}
+                          onMouseLeave={() => setHoveredIndex(null)}
+                          className={wordClassName}
+                        >
+                          {word}{" "}
+                        </span>
+                          );
+                        })()
+                      ))}
+                    </div>
+                  </article>
+
+                  <article className="flex min-h-0 flex-col px-5 py-5 lg:px-7">
+                    <p className="accent-label text-xs font-semibold uppercase tracking-[0.2em]">{t("documents.brailleOutput")}</p>
+                    <div className="mt-4 min-h-0 overflow-y-auto whitespace-pre-wrap break-all pr-1 text-2xl leading-10 text-slate-950">
+                      {brailleWords.map((word, index) => (
+                        (() => {
+                          const isFlagged = flaggedIndices.includes(index);
+                          const isHovered = hoveredIndex === index;
+                          let wordClassName = "transition-colors duration-200 cursor-default";
+
+                          if (isFlagged && isHovered) {
+                            wordClassName = "bg-red-500 text-white shadow-md scale-105 ring-2 ring-red-300 z-10 relative transition-colors duration-200 cursor-default";
+                          } else if (isFlagged) {
+                            wordClassName = "bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200 transition-colors duration-200 cursor-default";
+                          } else if (isHovered) {
+                            wordClassName = "bg-[var(--accent)] text-[var(--primary)] transition-colors duration-200 cursor-default";
+                          }
+
+                          return (
+                        <span
+                          key={`braille-${index}`}
+                          className={wordClassName}
+                        >
+                          {word}{" "}
+                        </span>
+                          );
+                        })()
+                      ))}
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {isClient && deleteTarget
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+              onClick={() => setDeleteTarget(null)}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                className="surface-card w-full max-w-md rounded-2xl p-6"
+                onClick={(event) => event.stopPropagation()}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteDocuments}
-                disabled={busyActionKey === "delete"}
-                className="rounded-full bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {busyActionKey === "delete" ? "Deleting..." : "Delete permanently"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">{t("documents.deleteConversion")}</p>
+                <h3 className="mt-3 text-3xl font-bold text-slate-950">
+                  {deleteTarget.type === "bulk" ? t("documents.selectedConversions", { count: selectedIds.length }) : deleteTarget.file_name}
+                </h3>
+                <p className="mt-3 text-base leading-7 text-slate-600">
+                  {t("documents.deleteDescription")}
+                </p>
+
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(null)}
+                    disabled={Boolean(busyActionKey)}
+                    className="button-secondary rounded-full px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {t("documents.cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteDocuments}
+                    disabled={busyActionKey === "delete"}
+                    className="rounded-full bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {busyActionKey === "delete" ? t("documents.deleting") : t("documents.deletePermanently")}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   );
 }

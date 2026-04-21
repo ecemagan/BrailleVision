@@ -23,14 +23,14 @@ async function showMathPopup(text) {
             body: JSON.stringify({ text: text })
         });
 
-        if (!response.ok) throw new Error("API Hatası");
+        if (!response.ok) throw new Error("API error");
 
         const data = await response.json();
         const contentDiv = popup.querySelector('.bv-content');
         contentDiv.innerHTML = '';
 
         if (!data.results || data.results.length === 0) {
-            contentDiv.innerHTML = '<div class="bv-error">Matematiksel ifade bulunamadı.</div>';
+            contentDiv.innerHTML = '<div class="bv-error">No mathematical expression was found.</div>';
             return;
         }
 
@@ -39,21 +39,21 @@ async function showMathPopup(text) {
             item.className = 'bv-result-item';
 
             if (res.error) {
-                item.innerHTML = `<div class="bv-error">Hata: ${res.error}</div>`;
+                item.innerHTML = `<div class="bv-error">Error: ${res.error}</div>`;
             } else {
                 item.innerHTML = `
-                    <div class="bv-label">İfade:</div>
+                    <div class="bv-label">Expression:</div>
                     <div class="bv-math">${escapeHtml(res.expression)}</div>
                     ${res.explanation ? `
                       <div class="bv-label" style="display:flex; justify-content:space-between; align-items:center;">
-                          AI Açıklaması <button class="bv-tts-btn" id="tts-btn-${index}">🔊 Dinle</button>
+                          AI explanation <button class="bv-tts-btn" id="tts-btn-${index}">🔊 Listen</button>
                       </div>
                       <div class="bv-explanation">${escapeHtml(res.explanation)}</div>
                     ` : ''}
                     <div class="bv-label">Nemeth Braille:</div>
                     <div class="bv-braille">${res.braille}</div>
                     <div style="text-align:right; margin-top:8px;">
-                        <button class="bv-export-btn" id="export-btn-${index}">📥 İndir (.txt)</button>
+                        <button class="bv-export-btn" id="export-btn-${index}">📥 Download (.txt)</button>
                     </div>
                 `;
             }
@@ -73,8 +73,8 @@ async function showMathPopup(text) {
                 const exportBtn = document.getElementById(`export-btn-${index}`);
                 if (exportBtn) {
                     exportBtn.addEventListener('click', () => {
-                        const content = `Matematiksel İfade:\n${res.expression}\n\nNemeth Braille Çevirisi:\n${res.braille}\n`;
-                        downloadTxt(content, 'BrailleVision_Matematik.txt');
+                        const content = `Mathematical Expression:\n${res.expression}\n\nNemeth Braille Translation:\n${res.braille}\n`;
+                        downloadTxt(content, 'BrailleVision_Math.txt');
                     });
                 }
             }
@@ -82,11 +82,11 @@ async function showMathPopup(text) {
 
     } catch (err) {
         popup.querySelector('.bv-content').innerHTML =
-            `<div class="bv-error">Çeviri yapılamadı. BrailleVision sunucusunun (http://localhost:8000) arkaplanda çalıştığından emin olun.</div>`;
+            `<div class="bv-error">Translation could not be completed. Make sure the BrailleVision server (http://localhost:8000) is running in the background.</div>`;
     }
 }
 
-/* ─── Metin → Braille Alfabesi ───────────────────────────────────────── */
+/* ─── Text → Braille alphabet ───────────────────────────────────────── */
 async function showAlphaPopup(text) {
     const existing = document.getElementById("braillevision-ext-popup");
     if (existing) existing.remove();
@@ -103,28 +103,28 @@ async function showAlphaPopup(text) {
             body: JSON.stringify({ text: text })
         });
 
-        if (!response.ok) throw new Error("API Hatası");
+        if (!response.ok) throw new Error("API error");
 
         const data = await response.json();
         const contentDiv = popup.querySelector('.bv-content');
         contentDiv.innerHTML = `
-            <div class="bv-label">Orijinal Metin:</div>
+            <div class="bv-label">Original text:</div>
             <div class="bv-math">${escapeHtml(data.original)}</div>
-            <div class="bv-label">Braille Çevirisi:</div>
+            <div class="bv-label">Braille translation:</div>
             <div class="bv-braille">${data.braille}</div>
             <div style="text-align:right; margin-top:8px;">
-                <button class="bv-export-btn" id="alpha-export-btn">📥 İndir (.txt)</button>
+                <button class="bv-export-btn" id="alpha-export-btn">📥 Download (.txt)</button>
             </div>
         `;
 
         document.getElementById("alpha-export-btn").addEventListener('click', () => {
-            const content = `${data.braille}\\n`;
-            downloadTxt(content, 'Braille Vision_Alfabesi.txt');
+            const content = `Original Text:\n${data.original}\n\nBraille Translation:\n${data.braille}\n`;
+            downloadTxt(content, 'BrailleVision_Alphabet.txt');
         });
 
     } catch (err) {
         popup.querySelector('.bv-content').innerHTML =
-            `<div class="bv-error">Çeviri yapılamadı. Braille Vision sunucusunun (http://localhost:8000) arkaplanda çalıştığından emin olun.</div>`;
+            `<div class="bv-error">Translation could not be completed. Make sure the BrailleVision server (http://localhost:8000) is running in the background.</div>`;
     }
 }
 
@@ -138,7 +138,7 @@ function createBasePopup(title) {
             <button id="bv-close-btn">&times;</button>
         </div>
         <div class="bv-content">
-            <div class="bv-loader">Çevriliyor...</div>
+            <div class="bv-loader">Converting...</div>
         </div>
     `;
     return popup;

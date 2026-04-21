@@ -28,9 +28,18 @@ cd BrailleVision
 
 ---
 
-## Adım 2 – Python Bağımlılıklarını Kur
+## Adım 2 – Python Ortamını Kur
 
 ```bash
+# Python sanal ortamı oluştur
+python3 -m venv .venv
+
+# Sanal ortamı etkinleştir
+source .venv/bin/activate           # macOS/Linux
+# veya
+.venv\Scripts\activate              # Windows
+
+# Bağımlılıkları yükle
 pip install -r requirements.txt
 ```
 
@@ -38,11 +47,19 @@ pip install -r requirements.txt
 
 ---
 
-## Adım 3 – Word Eklentisi Bağımlılıklarını Kur
+## Adım 3 – Node Bağımlılıklarını Kur
 
 ```bash
+# Ana klasöre dön
+cd ..
+
+# npm bağımlılıklarını yükle
+npm install
+
+# word-addin klasöründe de npm paketlerini yükle
 cd word-addin
 npm install
+cd ..
 ```
 
 ---
@@ -68,9 +85,9 @@ Bu adım **bir kez** yapılır. İşletim sistemine göre farklı:
 ### macOS:
 
 ```bash
-# Terminal'de çalıştır:
+# Terminal'de çalıştır (BrailleVision ana klasöründe):
 mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef
-cp word-addin/manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/BrailleVision.xml
+cp word-addin/manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/manifest.xml
 ```
 
 ### Windows:
@@ -93,8 +110,14 @@ Her kullanımdan önce **iki terminal** açıp şu komutları çalıştır:
 ```bash
 # BrailleVision ana klasöründe:
 cd BrailleVision
-python3 app.py          # macOS
-python app.py           # Windows
+
+# Sanal ortamı etkinleştir (henüz etkin değilse)
+source .venv/bin/activate           # macOS/Linux
+# veya
+.venv\Scripts\activate              # Windows
+
+# Backend sunucusunu başlat
+python app.py
 ```
 
 Başarılı çıktı:
@@ -106,9 +129,9 @@ INFO: Application startup complete.
 ### Terminal 2 – Word Eklentisi HTTPS Sunucusu:
 
 ```bash
-# word-addin klasöründe:
+# Yeni terminal aç, BrailleVision/word-addin klasöründe:
 cd BrailleVision/word-addin
-node server.js
+npm start
 ```
 
 Başarılı çıktı:
@@ -148,12 +171,34 @@ Başarılı çıktı:
 
 ## Her Oturumda Çalıştırılacaklar (Özet)
 
-```bash
-# Terminal 1
-cd BrailleVision && python3 app.py
+### İlk Kez Kurulum Sonrası (Her Gün):
 
-# Terminal 2
-cd BrailleVision/word-addin && node server.js
+**Terminal 1:**
+```bash
+cd BrailleVision
+source .venv/bin/activate           # macOS/Linux
+# .venv\Scripts\activate            # Windows
+python app.py
 ```
 
-Sonra Word'ü aç → Eklentilerim → BrailleVision ✅
+**Terminal 2:**
+```bash
+cd BrailleVision/word-addin
+npm start
+```
+
+Sonra **Word'ü aç → Ekle → Eklentilerim → BrailleVision → Eklentiyi Başlat** ✅
+
+---
+
+## Ortam Değişkenleri (Opsiyonel)
+
+Supabase entegrasyonu için `.env.local` dosyası oluştur (isteğe bağlı):
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_key
+GEMINI_API_KEY=your_gemini_key
+```
+
+Bu dosyayı `.gitignore`'da gizli tut (zaten gizli).
