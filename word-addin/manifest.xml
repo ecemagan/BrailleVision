@@ -7,8 +7,8 @@
   xsi:type="TaskPaneApp">
 
   <Id>b8e4f2a1-d3c6-4e7b-8c9d-0a1b2c3d4e5f</Id>
-  <Version>1.0.0.0</Version>
-  <ProviderName>BrailleVision</ProviderName>
+  <Version>1.0.0.1</Version>
+  <ProviderName>Braille Vision</ProviderName>
   <DefaultLocale>tr-TR</DefaultLocale>
 
   <DisplayName DefaultValue="BrailleVision"/>
@@ -16,7 +16,7 @@
 
   <IconUrl DefaultValue="https://localhost:3000/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/icon-80.png"/>
-  <SupportUrl DefaultValue="https://localhost:3000/word"/>
+  <SupportUrl DefaultValue="https://localhost:3000/taskpane.html"/>
 
   <AppDomains>
     <AppDomain>https://localhost:3000</AppDomain>
@@ -27,7 +27,7 @@
   </Hosts>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://localhost:3000/word"/>
+    <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
@@ -81,7 +81,7 @@
       </bt:Images>
       <bt:Urls>
         <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/word"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GroupLabel" DefaultValue="BrailleVision"/>
