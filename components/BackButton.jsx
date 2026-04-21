@@ -26,7 +26,7 @@ export function BackButton() {
       type="button"
       onClick={() => router.back()}
       aria-label={t("common.back")}
-      className="glass-card relative z-20 inline-flex min-w-[104px] items-center gap-2 rounded-full border border-violet-200 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-[0_10px_24px_rgba(109,76,194,0.12)] backdrop-blur-md transition-transform duration-200 hover:-translate-x-1 hover:text-violet-700"
+      className="glass-card relative z-20 inline-flex max-w-full items-center gap-2 rounded-full border border-violet-200 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-[0_10px_24px_rgba(109,76,194,0.12)] backdrop-blur-md transition-transform duration-200 hover:-translate-x-1 hover:text-violet-700"
     >
       <ArrowLeftIcon />
       <span>{t("common.back")}</span>

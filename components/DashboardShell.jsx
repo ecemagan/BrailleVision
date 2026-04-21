@@ -417,10 +417,10 @@ export function DashboardShell() {
   }
 
   return (
-    <main className="page-shell">
+    <main className="page-shell overflow-x-hidden">
       <NotificationCenter notifications={notifications} onDismiss={dismissNotification} />
 
-      <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[300px_1fr]">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 lg:flex-row">
         <Sidebar
           activeTab={activeTab}
           onLogout={handleLogout}
@@ -429,7 +429,7 @@ export function DashboardShell() {
           density={density}
         />
 
-        <section className="relative space-y-6 pt-20 md:pt-24 xl:pt-28">
+        <section className="relative min-w-0 flex-1 space-y-6 pt-20 md:pt-24 xl:pt-28">
           <div className="absolute left-0 top-4 flex items-center space-x-4 md:top-6">
             <BackButton />
             <p className="section-kicker">{breadcrumbLabel}</p>
@@ -440,12 +440,12 @@ export function DashboardShell() {
               <div className={`surface-card hero-wash ${density === "compact" ? "rounded-2xl p-5 pr-16 md:p-6 md:pr-20" : "rounded-2xl p-6 pr-16 md:p-8 md:pr-24"}`}>
                 <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
                   <div>
-                    <h1 className="mt-2 flex max-w-4xl items-center whitespace-nowrap text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">
+                    <h1 className="mt-2 flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 text-4xl font-bold tracking-tight text-slate-950 md:max-w-4xl md:flex-nowrap md:text-5xl">
                       <span className="shrink-0">{welcomePrefix}</span>
                       {isWelcomeLoading ? (
                         <span className="inline-block h-8 w-32 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse align-middle mx-1"></span>
                       ) : (
-                        <span>{welcomeName}</span>
+                        <span className="min-w-0 break-words">{welcomeName}</span>
                       )}
                       <span className="shrink-0">{welcomeSuffix}</span>
                     </h1>
@@ -463,7 +463,7 @@ export function DashboardShell() {
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <StatChip
                   icon="📁"
                   label={t("dashboard.saved")}
@@ -490,7 +490,7 @@ export function DashboardShell() {
                   />
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <section className="surface-card rounded-2xl p-6 md:p-7">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -536,8 +536,8 @@ export function DashboardShell() {
           {activeTab !== "overview" ? (
             <div className="surface-card rounded-2xl p-6 md:p-8">
               <p className="section-kicker">{tabMeta.eyebrow}</p>
-              <div className="mt-3 flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-                <div className="max-w-3xl">
+              <div className="mt-3 flex min-w-0 flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                <div className="min-w-0 max-w-3xl">
                   <h1 className="panel-heading">{tabMeta.title}</h1>
                 </div>
                 <div className="panel-subtle rounded-2xl px-5 py-4">

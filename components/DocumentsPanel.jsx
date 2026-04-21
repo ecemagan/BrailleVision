@@ -167,6 +167,7 @@ export function DocumentsPanel({
   const [actionMessage, setActionMessage] = useState("");
   const [busyActionKey, setBusyActionKey] = useState("");
   const [selectedExportFormat, setSelectedExportFormat] = useState("txt");
+  const flaggedIndices = [2, 7, 12];
   const deferredSearch = useDeferredValue(searchValue);
   const filterOptions = [
     { key: "active", label: t("documents.active") },
@@ -894,18 +895,30 @@ export function DocumentsPanel({
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t("documents.originalText")}</p>
                     <div className="mt-4 min-h-0 overflow-y-auto whitespace-pre-wrap pr-1 text-base leading-7 text-slate-700">
                       {originalWords.map((word, index) => (
+                        (() => {
+                          const isFlagged = flaggedIndices.includes(index);
+                          const isHovered = hoveredIndex === index;
+                          let wordClassName = "transition-colors duration-200 cursor-default";
+
+                          if (isFlagged && isHovered) {
+                            wordClassName = "bg-red-500 text-white shadow-md scale-105 ring-2 ring-red-300 z-10 relative transition-colors duration-200 cursor-default";
+                          } else if (isFlagged) {
+                            wordClassName = "bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200 transition-colors duration-200 cursor-default";
+                          } else if (isHovered) {
+                            wordClassName = "bg-[var(--accent)] text-[var(--primary)] transition-colors duration-200 cursor-default";
+                          }
+
+                          return (
                         <span
                           key={`original-${index}`}
                           onMouseEnter={() => setHoveredIndex(index)}
                           onMouseLeave={() => setHoveredIndex(null)}
-                          className={
-                            hoveredIndex === index
-                              ? "bg-[var(--accent)] text-[var(--primary)] rounded-md px-1 transition-colors duration-200 cursor-default"
-                              : "transition-colors duration-200 cursor-default"
-                          }
+                          className={wordClassName}
                         >
                           {word}{" "}
                         </span>
+                          );
+                        })()
                       ))}
                     </div>
                   </article>
@@ -914,16 +927,28 @@ export function DocumentsPanel({
                     <p className="accent-label text-xs font-semibold uppercase tracking-[0.2em]">{t("documents.brailleOutput")}</p>
                     <div className="mt-4 min-h-0 overflow-y-auto whitespace-pre-wrap break-all pr-1 text-2xl leading-10 text-slate-950">
                       {brailleWords.map((word, index) => (
+                        (() => {
+                          const isFlagged = flaggedIndices.includes(index);
+                          const isHovered = hoveredIndex === index;
+                          let wordClassName = "transition-colors duration-200 cursor-default";
+
+                          if (isFlagged && isHovered) {
+                            wordClassName = "bg-red-500 text-white shadow-md scale-105 ring-2 ring-red-300 z-10 relative transition-colors duration-200 cursor-default";
+                          } else if (isFlagged) {
+                            wordClassName = "bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200 transition-colors duration-200 cursor-default";
+                          } else if (isHovered) {
+                            wordClassName = "bg-[var(--accent)] text-[var(--primary)] transition-colors duration-200 cursor-default";
+                          }
+
+                          return (
                         <span
                           key={`braille-${index}`}
-                          className={
-                            hoveredIndex === index
-                              ? "bg-[var(--accent)] text-[var(--primary)] rounded-md px-1 transition-colors duration-200"
-                              : "transition-colors duration-200"
-                          }
+                          className={wordClassName}
                         >
                           {word}{" "}
                         </span>
+                          );
+                        })()
                       ))}
                     </div>
                   </article>

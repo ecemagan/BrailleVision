@@ -254,6 +254,7 @@ a.button-secondary:active {
 .page-shell {
   min-height: 100vh;
   padding: 24px;
+  overflow-x: hidden;
 }
 
 html[data-theme="dark"] .text-slate-950,
