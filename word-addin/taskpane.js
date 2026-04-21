@@ -3,8 +3,8 @@
  * API requests go through the HTTPS proxy to avoid mixed-content issues.
  */
 
-// Leave empty = same-origin (https://localhost:3000) → proxy → http://localhost:8000
-const BACKEND = '';
+// Use window.location.origin to ensure absolute URLs match the current hosting environment (important for Mac Word WebKit)
+const BACKEND = typeof window !== 'undefined' ? window.location.origin : 'https://localhost:3000';
 
 // ─── Start when Office is ready ──────────────────────────────────────────────
 Office.onReady((info) => {
@@ -29,32 +29,29 @@ async function checkBackend() {
     const r = await fetch(`${BACKEND}/`, { signal: AbortSignal.timeout(3000) });
     if (r.ok || r.status < 500) {
       dot.className  = 'status-dot online';
-      text.textContent = 'Backend connected — ready to convert ✓';
+      text.textContent = 'Backend connected ✓';
     } else {
       throw new Error('bad status');
     }
   } catch {
     dot.className  = 'status-dot offline';
-    text.textContent = 'Backend could not connect! Is `python app.py` running?';
+    text.textContent = 'Backend offline — is `python app.py` running?';
   }
 }
 
 // ─── Convert selected text ───────────────────────────────────────────────────
 async function translateSelected(mode) {
   let selectedText = '';
-
   try {
     selectedText = await getSelectionText();
   } catch (err) {
     showError('Could not read text from Word: ' + err.message);
     return;
   }
-
   if (!selectedText || !selectedText.trim()) {
     showError('Please select text in the Word document first.');
     return;
   }
-
   if (mode === 'alpha') {
     await callBrailleAlpha(selectedText.trim());
   } else {
@@ -71,12 +68,10 @@ async function translateFullDoc() {
     showError('Could not read the document text: ' + err.message);
     return;
   }
-
   if (!docText || !docText.trim()) {
     showError('The document appears to be empty.');
     return;
   }
-
   await callBrailleAlpha(docText.trim());
 }
 
@@ -86,8 +81,6 @@ function getSelectionText() {
     const selection = context.document.getSelection();
     selection.load('text');
     await context.sync();
-    // Word belgelerinde paragraflar genellikle \r (carriage return) ile ayrılır.
-    // Backend'de bu karakterler silinmesin diye \n'ye (newline) dönüştürüyoruz.
     return selection.text.replace(/\r\n|\r/g, '\n');
   });
 }
@@ -105,24 +98,22 @@ function getDocumentText() {
 async function callBrailleAlpha(text) {
   setLoading(true);
   clearResult();
-
   try {
     const res = await fetch(`${BACKEND}/api/translate_braille_text`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ text }),
     });
-
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || `HTTP ${res.status}`);
+      let errorDetail = `Status ${res.status}`;
+      try { const e = await res.json(); errorDetail = e.detail || errorDetail; } catch {}
+      throw new Error(errorDetail);
     }
-
     const data = await res.json();
     showAlphaResult(data);
-
   } catch (err) {
-    showError('Translation error: ' + err.message);
+    console.error('CallBrailleAlpha error:', err);
+    showError('Translation error: ' + err.message + (err.name === 'SyntaxError' ? ' (Check Server/Proxy)' : ''));
   } finally {
     setLoading(false);
   }
@@ -132,24 +123,22 @@ async function callBrailleAlpha(text) {
 async function callNemethMath(text) {
   setLoading(true);
   clearResult();
-
   try {
     const res = await fetch(`${BACKEND}/api/process_text`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ text }),
     });
-
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || `HTTP ${res.status}`);
+      let errorDetail = `Status ${res.status}`;
+      try { const e = await res.json(); errorDetail = e.detail || errorDetail; } catch {}
+      throw new Error(errorDetail);
     }
-
     const data = await res.json();
     showMathResults(data.results || []);
-
   } catch (err) {
-    showError('Translation error: ' + err.message);
+    console.error('CallNemethMath error:', err);
+    showError('Translation error: ' + err.message + (err.name === 'SyntaxError' ? ' (Check Server/Proxy)' : ''));
   } finally {
     setLoading(false);
   }
@@ -161,43 +150,28 @@ function showAlphaResult(data) {
   const card = document.createElement('div');
   card.className = 'result-card';
 
-  const preview = data.original.length > 120
-    ? data.original.slice(0, 120) + '…'
-    : data.original;
+  // Render newlines as <br> so multi-line Braille text shows correctly
+  const brailleHtml = escapeHtml(data.braille).replace(/\n/g, '<br>');
 
   card.innerHTML = `
-    <div>
-      <div class="result-label">Original text</div>
-      <div class="result-original">${escapeHtml(preview)}</div>
-    </div>
-    <div>
-      <div class="result-label">Braille translation</div>
-      <div class="result-braille" id="alpha-braille-out">${data.braille}</div>
-    </div>
+    <div class="result-label">Braille çevirisi</div>
+    <div class="result-braille" id="alpha-braille-out">${brailleHtml}</div>
     <div class="result-actions">
-      <button class="mini-btn" id="alpha-insert-btn">📄 Insert into document</button>
+      <button class="mini-btn" id="alpha-insert-btn">📄 Insert</button>
       <button class="mini-btn" id="alpha-copy-btn">📋 Copy</button>
-      <button class="mini-btn" id="alpha-tts-btn">🔊 Read aloud</button>
-      <button class="mini-btn" id="alpha-dl-btn">📥 Download</button>
+      <button class="mini-btn" id="alpha-dl-btn">📥 .brf</button>
     </div>
   `;
   area.appendChild(card);
 
   document.getElementById('alpha-insert-btn').addEventListener('click', () => {
-    const content = `Original Text:\n${data.original}\n\nBraille Translation:\n${data.braille}`;
-    insertToDocument(content, 'BrailleVision – Text Translation');
+    insertToDocument(data.braille);
   });
   document.getElementById('alpha-copy-btn').addEventListener('click', () => {
     copyToClipboard(data.braille);
   });
-  document.getElementById('alpha-tts-btn').addEventListener('click', () => {
-    speak(data.original);
-  });
   document.getElementById('alpha-dl-btn').addEventListener('click', () => {
-    downloadTxt(
-      `Original Text:\n${data.original}\n\nBraille Translation:\n${data.braille}\n`,
-      'BrailleVision_Alphabet.txt'
-    );
+    downloadBRF(data.braille, 'BrailleVision_Alphabet.brf');
   });
 }
 
@@ -209,7 +183,7 @@ function showMathResults(results) {
   if (!results.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'No mathematical expression was found. Gemini AI could not detect a mathematical structure.';
+    empty.textContent = 'No mathematical expression found.';
     area.appendChild(empty);
     return;
   }
@@ -225,47 +199,37 @@ function showMathResults(results) {
         <div class="error-msg">⚠️ ${escapeHtml(res.error)}</div>
       `;
     } else {
-      const expSafe = escapeHtml(res.explanation || '');
+      // Render newlines as <br> for readable display in the card
+      const brailleHtml = escapeHtml(res.braille).replace(/\n/g, '<br>');
       card.innerHTML = `
-        <div>
-          <div class="result-label">Mathematical expression</div>
-          <div class="result-original">${escapeHtml(res.expression)}</div>
-        </div>
-        ${res.explanation ? `
-        <div>
-          <div class="result-label">AI explanation</div>
-          <div class="result-explanation">${expSafe}</div>
-        </div>` : ''}
-        <div>
-          <div class="result-label">Nemeth Braille</div>
-          <div class="result-braille">${res.braille}</div>
-        </div>
+        <div class="result-label">Expression</div>
+        <div class="result-original">${escapeHtml(res.expression)}</div>
+        ${res.explanation ? `<div class="result-label" style="margin-top:4px">Explanation</div>
+        <div class="result-explanation">${escapeHtml(res.explanation)}</div>` : ''}
+        <div class="result-label" style="margin-top:4px">Nemeth Braille</div>
+        <div class="result-braille">${brailleHtml}</div>
         <div class="result-actions">
-          <button class="mini-btn" data-action="insert" data-idx="${idx}">📄 Insert into document</button>
+          <button class="mini-btn" data-action="insert" data-idx="${idx}">📄 Insert</button>
           <button class="mini-btn" data-action="copy" data-idx="${idx}">📋 Copy</button>
-          ${res.explanation ? `<button class="mini-btn" data-action="tts" data-idx="${idx}">🔊 Read aloud</button>` : ''}
-          <button class="mini-btn" data-action="dl" data-idx="${idx}">📥 Download</button>
+          ${res.explanation ? `<button class="mini-btn" data-action="tts" data-idx="${idx}">🔊 Listen</button>` : ''}
+          <button class="mini-btn" data-action="dl" data-idx="${idx}">📥 .brf</button>
         </div>
       `;
     }
 
     area.appendChild(card);
 
-    // Buton event'leri
     card.querySelectorAll('.mini-btn[data-action]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const action = btn.dataset.action;
         if (action === 'copy')   copyToClipboard(res.braille);
         if (action === 'tts')    speak(res.explanation);
         if (action === 'insert') {
-          const content = `${res.expression}\nNemeth Braille: ${res.braille}${res.explanation ? '\nExplanation: ' + res.explanation : ''}`;
-          insertToDocument(content, 'BrailleVision – Math Translation');
+          // Insert only the Nemeth Braille output — no expression text
+          insertToDocument(res.braille);
         }
         if (action === 'dl') {
-          downloadTxt(
-            `Mathematical Expression:\n${res.expression}\n\nNemeth Braille:\n${res.braille}\n`,
-            `BrailleVision_Nemeth_${idx + 1}.txt`
-          );
+          downloadBRF(res.braille, `BrailleVision_Nemeth_${idx + 1}.brf`);
         }
       });
     });
@@ -293,13 +257,12 @@ function speak(text) {
   if (!text) return;
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(text);
-  utt.lang = 'en-US';
+  utt.lang = 'tr-TR';
   window.speechSynthesis.speak(utt);
 }
 
 function copyToClipboard(text) {
   navigator.clipboard.writeText(text).catch(() => {
-    // Fallback for older Office webviews
     const ta = document.createElement('textarea');
     ta.value = text;
     document.body.appendChild(ta);
@@ -309,80 +272,88 @@ function copyToClipboard(text) {
   });
 }
 
-// ─── Insert Braille output into the Word document ────────────────────────────
-function insertToDocument(content, title) {
+// ─── Insert Braille only into the Word document ───────────────────────────────
+function insertToDocument(brailleText) {
   Word.run(async (context) => {
     const body = context.document.body;
 
-    const isFullBraille = (title === 'BrailleVision – Metin Çevirisi');
+    // Thin separator line
+    const hr = body.insertParagraph('─'.repeat(36), Word.InsertLocation.end);
+    hr.font.color = '#7c3aed';
+    hr.font.size  = 8;
 
-    // Orijinal metinle araya belirgin boşluklar ekle
-    body.insertParagraph('', Word.InsertLocation.end);
-    body.insertParagraph('', Word.InsertLocation.end);
-
-    if (isFullBraille) {
-      // Tüm belge çevirisinde sayfa hizası karışmasın diye ekstra boşluk
-      body.insertParagraph('', Word.InsertLocation.end);
-      body.insertParagraph('', Word.InsertLocation.end);
-    } else {
-      // Sadece ayraç satırı
-      const hr = body.insertParagraph('─'.repeat(40), Word.InsertLocation.end);
-      hr.font.color = '#7c3aed';
-      hr.font.size  = 9;
-      body.insertParagraph('', Word.InsertLocation.end);
-    }
-
-    // Heading
-    const heading = body.insertParagraph(title, Word.InsertLocation.end);
-    heading.font.bold  = true;
-    heading.font.color = '#5b21b6';
-    heading.font.size  = 13;
-
-    // Başlıkla içerik arasına boşluk
-    body.insertParagraph('', Word.InsertLocation.end);
-
-    // Content lines
-    content.split('\n').forEach(line => {
-      // İçerikteki boş satırların da düzgün yansıması için boşluk kontrolü eklendi
+    // Insert each Braille line with Courier New (monospaced = consistent cell width)
+    brailleText.split('\n').forEach(line => {
       const p = body.insertParagraph(line || ' ', Word.InsertLocation.end);
-      
-      // Varsayılan normal görünüm
-      p.font.size = 11;
-      
-      // Braille satırı kontrolü (Tüm metin çevirisi yapıldıysa içerik komple Braille'dir)
-      const isBrailleLine = isFullBraille || line.startsWith('Nemeth Braille:') || line.startsWith('Braille Çevirisi:');
-      
-      if (isBrailleLine) {
-        p.font.size  = 20; // Braille okunaklı olması için büyük font
-        p.font.color = '#1e1b4b';
-        p.alignment = 'Left'; // Yaslamadan kaynaklı harf arası açıklarını önle
-        p.spaceAfter = 10; // Braille satırları arasına makul boşluk
-      } else if (line.startsWith('Açıklama:')) {
-        p.font.italic = true;
-        p.font.color = '#4b5563';
-      }
+      p.font.name      = 'Courier New';  // monospaced for uniform Braille cell rendering
+      p.font.size      = 18;
+      p.font.color     = '#1e1b4b';
+      p.lineSpacing    = 28;             // ~10 mm line spacing
+      p.spaceAfter     = 0;
+      p.alignment      = 'Left';
     });
 
-    // En alta çevirinin bittiğini belli eden boşluk
     body.insertParagraph('', Word.InsertLocation.end);
-    body.insertParagraph('', Word.InsertLocation.end);
-
     await context.sync();
 
-    // Notify the user
     const btn = document.activeElement;
     if (btn) {
       const orig = btn.textContent;
       btn.textContent = '✅ Added!';
       setTimeout(() => { btn.textContent = orig; }, 2000);
     }
-  }).catch(err => showError('Could not insert into the document: ' + err.message));
+  }).catch(err => showError('Could not insert: ' + err.message));
 }
 
-function downloadTxt(content, filename) {
-  // Blob downloads may not work in Word WebView — try the proxy route
+// ─── BRF export (Braille Ready Format – NABCC, 40 cells/line, 25 lines/page) ─
+// Converts Unicode Braille → NABCC ASCII, wraps at 40 cells, paginates at 25 lines.
+function downloadBRF(brailleUnicode, filename) {
+  const UNICODE_TO_NABCC = {
+    '\u2800': ' ',
+    '\u2801': 'a', '\u2802': '1', '\u2803': 'b', '\u2804': "'", '\u2805': 'k',
+    '\u2806': '2', '\u2807': 'l', '\u2808': '@', '\u2809': 'c', '\u280a': 'i',
+    '\u280b': 'f', '\u280c': '/', '\u280d': 'm', '\u280e': 's', '\u280f': 'p',
+    '\u2810': '"', '\u2811': 'e', '\u2812': '3', '\u2813': 'h', '\u2814': '9',
+    '\u2815': 'o', '\u2816': '6', '\u2817': 'r', '\u2818': '^', '\u2819': 'd',
+    '\u281a': 'j', '\u281b': 'g', '\u281c': '>', '\u281d': 'n', '\u281e': 't',
+    '\u281f': 'q', '\u2820': ',', '\u2821': '*', '\u2822': '5', '\u2823': '<',
+    '\u2824': '-', '\u2825': 'u', '\u2826': '8', '\u2827': 'v', '\u2828': '.',
+    '\u2829': '%', '\u282a': '[', '\u282b': '$', '\u282c': '+', '\u282d': 'x',
+    '\u282e': '!', '\u282f': '&', '\u2830': ';', '\u2831': ':', '\u2832': '4',
+    '\u2833': '\\','\u2834': '0', '\u2835': 'z', '\u2836': '7', '\u2837': '(',
+    '\u2838': '_', '\u2839': '?', '\u283a': 'w', '\u283b': ']', '\u283c': '#',
+    '\u283d': 'y', '\u283e': ')', '\u283f': '=',
+  };
+
+  // Convert Unicode Braille → ASCII BRF
+  let ascii = '';
+  for (const ch of brailleUnicode) {
+    if (ch === '\n') { ascii += '\n'; continue; }
+    if (ch === ' ')  { ascii += ' ';  continue; }
+    ascii += UNICODE_TO_NABCC[ch] ?? ch;
+  }
+
+  // Wrap at 40 cells/line, paginate at 25 lines
+  const CELLS_PER_LINE = 40;
+  const LINES_PER_PAGE = 25;
+  const inputLines = ascii.split('\n');
+  const wrapped = [];
+  for (const line of inputLines) {
+    if (line.length === 0) { wrapped.push(''); continue; }
+    for (let i = 0; i < line.length; i += CELLS_PER_LINE) {
+      wrapped.push(line.slice(i, i + CELLS_PER_LINE));
+    }
+  }
+  const pages = [];
+  for (let i = 0; i < wrapped.length; i += LINES_PER_PAGE) {
+    pages.push(wrapped.slice(i, i + LINES_PER_PAGE).join('\n'));
+  }
+  const brf = pages.join('\n\f\n');
+
+  // Word WebView often blocks Blob downloads — try Blob first, fall back to clipboard
+  let downloaded = false;
   try {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([brf], { type: 'application/x-brf;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href = url;
@@ -391,9 +362,21 @@ function downloadTxt(content, filename) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  } catch (e) {
-    copyToClipboard(content);
-    showError('Download is not supported. The content was copied to the clipboard — you can paste it.');
+    downloaded = true;
+  } catch (_) { /* fall through */ }
+
+  if (!downloaded) {
+    // Fallback: copy BRF content to clipboard and notify user
+    copyToClipboard(brf);
+    const area = document.getElementById('result-area');
+    const msg = document.createElement('div');
+    msg.className = 'error-msg';
+    msg.style.color = 'var(--success)';
+    msg.style.borderColor = 'var(--success)';
+    msg.style.background = 'rgba(52,211,153,0.08)';
+    msg.textContent = '✅ .brf içeriği panoya kopyalandı. Bir metin editörüne yapıştırıp .brf olarak kaydedin.';
+    area.prepend(msg);
+    setTimeout(() => msg.remove(), 5000);
   }
 }
 

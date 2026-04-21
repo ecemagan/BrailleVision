@@ -141,7 +141,7 @@ def process_file_with_gemini(file_bytes: bytes, mime_type: str) -> list[dict]:
         - Prime gösterimi için: f'(x) veya f''(x)
         Örnek: "∫_0^1 x² dx" → int(x^2, x, 0, 1) ve "d/dx(sin x)" → diff(sin(x), x)
         
-        1. Eğer görselde OCR hataları (l ve 1 karışması, f ve integral işareti vb.) varsa bağlama göre DÜZELT.
+        1. Eğer görselde OCR hataları (Örn: i ve ' (tek tırnak) karışması, l ve 1 karışması, f ve integral işareti vb.) varsa bağlama göre DÜZELT. En sık yapılan "i" yerine "'" (tek tırnak) kullanımını kelimenin anlamına göre i/ı olarak mutlaka düzelt (Örn: "wr't'ng" -> "writing", "opportun't'es" -> "opportunities").
         2. Her denklem için programatik format kullan: örn. sqrt(x), log(x), log2(x), ln(x), abs(x), x^2, x_n.
         3. Çıkarılan her bir denklem için öğrencilerin dinlerken anlayabileceği şekilde **değerleri ve sayıları bizzat telaffuz ederek** açıklayıcı bir Türkçe sesli okuma metni yaz.
         4. Çıktıyı kesinlikle JSON formatında döndür. Markdown etiketlerini (```json ... ```) kullanma, direkt JSON dizisini (array) ver.
@@ -206,6 +206,39 @@ async def process_image(image: UploadFile = File(...)):
             
     return JSONResponse(content={"results": results})
 
+@app.post("/api/extract_image_text_full")
+async def extract_image_text_full(image: UploadFile = File(...)):
+    """Gemini API kullanarak görselden düz metin ve matematik formüllerini tam doğrulukla (OCR) çıkarır."""
+    if not _GEMINI_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Gemini API is not available.")
+        
+    if not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Send an Image.")
+    
+    try:
+        file_bytes = await image.read()
+        mime_type = image.content_type
+        
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        prompt = """
+Lütfen bu görseldeki tüm metni, formülleri ve içerikleri olduğu gibi, karakter karakter en doğru şekilde dışa aktar. 
+1. Türkçe karakterleri (ğ, ü, ş, ı, ö, ç) tamamen doğru yaz (asla birleştirilmiş veya bozuk harfler kullanma, 'yo˘gundurlar' yerine 'yoğundurlar' yaz).
+2. Matematiksel işlemleri, sembolleri (√, ≤, ≥, integral, üstel vb.) ve değişkenleri kesin bir doğrulukla metne dönüştür.
+3. Sadece ve sadece dışa aktarılan metni yaz. Önüne veya arkasına kendi yorumlarını, markdown etiketlerini (```) veya açıklamalar ekleme.
+"""
+        response = model.generate_content([
+            {"mime_type": mime_type, "data": file_bytes},
+            prompt
+        ])
+        
+        # Sadece saf metni döndür (trimlenmiş şekilde)
+        extracted_text = response.text.strip()
+        return JSONResponse(content={"text": extracted_text})
+        
+    except Exception as e:
+        print(f"Gemini API Error (extract_image_text_full): {e}")
+        raise HTTPException(status_code=500, detail=f"Text extraction failed: {str(e)}")
+
 def process_text_raw_with_gemini(text_input: str) -> list[dict]:
     """Gemini ile metinden matematik denklemlerini çıkar. API yoksa [] döner."""
     if not _GEMINI_AVAILABLE:
@@ -231,7 +264,7 @@ def process_text_raw_with_gemini(text_input: str) -> list[dict]:
         - Prime gösterimi için: f'(x) veya f''(x)
         Örnek: "∫_0^1 x² dx" → int(x^2, x, 0, 1) ve "d/dx(sin x)" → diff(sin(x), x)
         
-        1. Varsa OCR/optik hatalarını (1 ve l karışması vb.) akıllıca düzelt.
+        1. Varsa OCR/optik hatalarını (Özellikle "i" yerine kullanılan "'" tek tırnak işaretlerini, 1 ve l karışmasını vb.) akıllıca düzelt. Kelime içinde anlamsız duran tek tırnakları i/ı harfi ile değiştir (Örn: "wr't'ng" -> "writing").
         2. Her denklem için programatik formatta yaz: sqrt(x), log(x), log2(8), ln(x), abs(x), x^2, x_n.
         3. Çıkarılan her bir denklem için **değerleri ve sayıları bizzat telaffuz ederek** detaylı bir Türkçe sesli okuma / açıklama metni yaz.
         4. Çıktıyı JSON array formatında döndür. Başka hiçbir şey yazma.

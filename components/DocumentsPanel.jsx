@@ -188,10 +188,12 @@ export function DocumentsPanel({
     { key: "text", label: t("documents.typeText") },
   ];
   const exportFormatOptions = [
+    { value: "brf", label: ".brf" },
     { value: "txt", label: ".txt" },
     { value: "docx", label: ".docx" },
     { value: "pdf", label: ".pdf" },
   ];
+
   const previewDocument = useMemo(
     () => (previewDocumentId ? documents.find((document) => document.id === previewDocumentId) ?? null : null),
     [documents, previewDocumentId],

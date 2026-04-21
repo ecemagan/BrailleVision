@@ -8,7 +8,7 @@ import { useI18n } from "@/components/I18nProvider";
 import { saveDocumentRecord } from "@/lib/documents";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
 
-const backendBase = "";
+const backendBase = typeof window !== "undefined" ? window.location.origin : "";
 
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
