@@ -20,6 +20,7 @@ export function Sidebar({
   const navigationItems = [
     { key: "overview", label: t("nav.overview") },
     { key: "upload", label: t("nav.convert") },
+    { key: "graphs", label: t("nav.graphs") },
     { key: "documents", label: t("nav.library") },
     { key: "settings", label: t("nav.settings") },
   ];

@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { analyzeBrailleReadability, suggestDocumentTags } from "@/lib/brailleAssistant";
 import { convertToBraille } from "@/lib/convertToBraille";
+import { processDocumentInput } from "@/lib/documentProcessing";
 import { normalizeTags, saveDocumentRecord } from "@/lib/documents";
+import { isReaderRecommended, joinPagesForStorage, stripStoredPageMarkers } from "@/lib/documentReview";
 import { exportDocuments } from "@/lib/exportDocuments";
 import { extractImageText } from "@/lib/extractImageText";
-import { extractPdfText } from "@/lib/extractPdfText";
+import { extractPdfContent } from "@/lib/extractPdfText";
+import { translateBrailleText } from "@/lib/translateBrailleText";
+import { AlignedBrailleComparison } from "@/components/AlignedBrailleComparison";
 import { useI18n } from "@/components/I18nProvider";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
 
@@ -28,6 +33,7 @@ export function UploadPanel({
   isActive = false,
 }) {
   const isCompact = density === "compact";
+  const router = useRouter();
   const { t } = useI18n();
   const formRef = useRef(null);
   const documentInputRef = useRef(null);
@@ -45,6 +51,8 @@ export function UploadPanel({
   const [useImprovedText, setUseImprovedText] = useState(true);
   const [copyMessage, setCopyMessage] = useState("");
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [resultStructureMode, setResultStructureMode] = useState("plain_prose");
+  const [resultLanguage, setResultLanguage] = useState("unknown");
   const allowedDocumentExtensions = useMemo(() => ["pdf", "txt", "jpg", "jpeg", "png"], []);
 
   useEffect(() => {
@@ -195,9 +203,12 @@ export function UploadPanel({
       }
 
       if (fileExtension === "pdf") {
+        const pdfContent = await extractPdfContent(selectedFile);
+
         return {
           fileName: selectedFile.name,
-          originalText: await extractPdfText(selectedFile),
+          originalText: pdfContent.text,
+          pageTexts: pdfContent.pages,
           sourceType: "pdf",
         };
       }
@@ -298,6 +309,8 @@ export function UploadPanel({
     setBrailleResult("");
     setSourceText("");
     setResultDocument(null);
+    setResultStructureMode("plain_prose");
+    setResultLanguage("unknown");
     setSuccessMessage("");
     setCopyMessage("");
   }
@@ -310,11 +323,26 @@ export function UploadPanel({
     setCopyMessage("");
 
     try {
-      const { fileName, originalText, sourceType } = await getInputText();
+      const { fileName, originalText, sourceType, pageTexts = [] } = await getInputText();
       const conversionMode = detectConversionMode(originalText, sourceType);
-      const analysis = analyzeBrailleReadability(originalText, sourceType, conversionMode);
-      const textToConvert = useImprovedText ? analysis.improvedText : originalText;
-      const brailleText = convertToBraille(textToConvert);
+      const processedInput = processDocumentInput({
+        originalText,
+        sourceType,
+        pageTexts,
+        conversionMode,
+        useImprovedText,
+      });
+      const analysis = analyzeBrailleReadability(processedInput.text, sourceType, conversionMode);
+      const normalizedText = processedInput.text;
+      const nextPageTexts = processedInput.pages.map((page) => page.originalText).filter(Boolean);
+      const storedOriginalText = nextPageTexts.length > 1 ? joinPagesForStorage(nextPageTexts) : normalizedText;
+      const displayOriginalText = stripStoredPageMarkers(storedOriginalText);
+      const braillePages =
+        conversionMode === "text"
+          ? await Promise.all(nextPageTexts.map((pageText) => translateBrailleText(pageText)))
+          : nextPageTexts.map((pageText) => convertToBraille(pageText));
+      const brailleText = nextPageTexts.length > 1 ? joinPagesForStorage(braillePages) : braillePages[0] || "";
+      const displayBrailleText = stripStoredPageMarkers(brailleText);
       const tags = normalizeTags([
         ...analysis.suggestedTags,
         ...tagInput.split(",").map((tag) => tag.trim()),
@@ -322,26 +350,33 @@ export function UploadPanel({
 
       const nextResultDocument = {
         file_name: fileName,
-        original_text: textToConvert,
+        original_text: storedOriginalText,
         braille_text: brailleText,
         source_type: sourceType,
         conversion_mode: conversionMode,
         tags,
+        structure_mode: processedInput.structureMode,
+        detected_language: processedInput.language,
       };
 
-      setSourceText(textToConvert);
-      setBrailleResult(brailleText);
-      setResultDocument(nextResultDocument);
-
-      await saveDocumentRecord({
+      const savedDocument = await saveDocumentRecord({
         supabase,
         userId,
         fileName,
-        originalText: textToConvert,
+        originalText: storedOriginalText,
         brailleText,
         sourceType,
         conversionMode,
         tags,
+      });
+
+      setSourceText(displayOriginalText);
+      setBrailleResult(displayBrailleText);
+      setResultStructureMode(processedInput.structureMode);
+      setResultLanguage(processedInput.language);
+      setResultDocument({
+        ...nextResultDocument,
+        id: savedDocument?.id,
       });
 
       const message = t("upload.conversionSavedMessageShort");
@@ -355,6 +390,10 @@ export function UploadPanel({
         title: t("upload.conversionSaved"),
         message: t("upload.conversionSavedMessage", { name: fileName }),
       });
+
+      if (savedDocument?.id && isReaderRecommended({ sourceType, originalText: storedOriginalText })) {
+        router.push(`/dashboard/review?document=${savedDocument.id}&fresh=1`);
+      }
     } catch (error) {
       const friendlyMessage = getFriendlyDocumentMessage(error, t("upload.conversionFailed"));
       setErrorMessage(friendlyMessage);
@@ -370,8 +409,30 @@ export function UploadPanel({
 
   return (
     <section className="space-y-6">
-      <div className={`surface-card ${isCompact ? "rounded-2xl p-5 md:p-6" : "rounded-2xl p-6 md:p-8"}`}>
-        <form ref={formRef} className="grid gap-6" onSubmit={handleConvert}>
+      <form ref={formRef} className="space-y-6" onSubmit={handleConvert}>
+        <section className="surface-card overflow-hidden rounded-[28px]">
+          <div className="bg-[linear-gradient(135deg,rgba(217,119,6,0.12),rgba(255,255,255,0.86),rgba(255,248,235,0.92))] px-6 py-6 md:px-8 md:py-7">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+              <div className="max-w-4xl">
+                <p className="section-kicker">{t("upload.workspaceKicker")}</p>
+                <h2 className="mt-3 font-display text-4xl font-bold tracking-tight text-slate-950 md:text-[3.2rem]">
+                  {t("upload.workspaceTitle")}
+                </h2>
+                <p className="mt-3 text-base leading-8 text-slate-700 md:text-lg">{t("upload.workspaceDescription")}</p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="button-primary rounded-full px-6 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {saving ? t("upload.convertingAndSaving") : t("upload.convertToBraille")}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className={`surface-card ${isCompact ? "rounded-[28px] p-5 md:p-6" : "rounded-[28px] p-6 md:p-7"}`}>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div className="space-y-5">
               <label className="block">
@@ -502,10 +563,24 @@ export function UploadPanel({
                     </button>
                     <button
                       type="button"
+                      onClick={() => handleExportResult("txt")}
+                      className="rounded-full border border-slate-500/70 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:border-violet-400 hover:text-violet-200"
+                    >
+                      {t("upload.downloadTxt")}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleExportResult("docx")}
                       className="rounded-full border border-slate-500/70 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:border-violet-400 hover:text-violet-200"
                     >
-                      {t("upload.exportToWord")}
+                      {t("upload.downloadDocx")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportResult("pdf")}
+                      className="rounded-full border border-slate-500/70 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:border-violet-400 hover:text-violet-200"
+                    >
+                      {t("upload.downloadPdf")}
                     </button>
                   </div>
                 ) : null}
@@ -526,13 +601,31 @@ export function UploadPanel({
               </div>
 
               {brailleResult ? (
-                <button
-                  type="button"
-                  onClick={handleCloseResult}
-                  className="mt-4 button-secondary rounded-full px-5 py-2.5 text-sm font-semibold"
-                >
-                  {t("upload.closeResult")}
-                </button>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {isReaderRecommended({
+                    sourceType: resultDocument?.source_type,
+                    originalText: resultDocument?.original_text,
+                  }) ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (resultDocument?.id) {
+                          router.push(`/dashboard/review?document=${resultDocument.id}`);
+                        }
+                      }}
+                      className="button-primary rounded-full px-5 py-2.5 text-sm font-semibold"
+                    >
+                      {t("upload.openReader")}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleCloseResult}
+                    className="button-secondary rounded-full px-5 py-2.5 text-sm font-semibold"
+                  >
+                    {t("upload.closeResult")}
+                  </button>
+                </div>
               ) : null}
             </aside>
           </div>
@@ -546,18 +639,8 @@ export function UploadPanel({
               {successMessage}
             </p>
           ) : null}
-
-          <div className="flex justify-center">
-            <button
-              type="submit"
-              disabled={saving}
-              className="button-primary rounded-full px-6 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {saving ? t("upload.convertingAndSaving") : t("upload.convertToBraille")}
-            </button>
-          </div>
-        </form>
-      </div>
+        </section>
+      </form>
 
       <div className="surface-muted rounded-2xl px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -573,6 +656,36 @@ export function UploadPanel({
           ) : null}
         </div>
       </div>
+
+      {sourceText && brailleResult ? (
+        <section className="space-y-4">
+          <div className="surface-card rounded-2xl p-5 md:p-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="info-chip rounded-full px-3 py-1 text-xs font-semibold">
+                {resultStructureMode}
+              </span>
+              <span className="info-chip rounded-full px-3 py-1 text-xs font-semibold">
+                {resultLanguage}
+              </span>
+            </div>
+          </div>
+
+          <AlignedBrailleComparison
+            originalText={sourceText}
+            brailleText={brailleResult}
+            originalLabel={t("review.originalPage")}
+            brailleLabel={t("review.braillePage")}
+            notesTitle={t("review.notesTitle")}
+            notes={[
+              t("review.noteAlignedRows"),
+              t("review.noteSpacing"),
+              t("review.noteSync"),
+            ]}
+            interactive
+            mode={resultStructureMode}
+          />
+        </section>
+      ) : null}
     </section>
   );
 }

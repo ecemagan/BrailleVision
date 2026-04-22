@@ -34,9 +34,9 @@ export default function RootLayout({ children }) {
       <body>
         <I18nProvider>
           <AuthProvider>
-            <div className="fixed right-4 top-4 z-50 md:right-6 md:top-6">
+            <aside className="fixed right-4 top-4 z-50 md:right-6 md:top-6">
               <LanguageSwitcher />
-            </div>
+            </aside>
             {children}
           </AuthProvider>
         </I18nProvider>

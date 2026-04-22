@@ -110,7 +110,10 @@ Then fill in:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=your-project-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+GEMINI_API_KEY=your-gemini-api-key
 ```
+
+`GEMINI_API_KEY` is optional for the rest of the app, but it enables the higher-quality `AI Vision` mode in Graph Reader. Without it, Graph Reader falls back to `Offline Basic`.
 
 Re-run the SQL after the latest schema changes:
 

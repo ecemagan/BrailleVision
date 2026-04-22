@@ -5,7 +5,11 @@
     "dev": "next dev",
     "dev:addin": "next dev --port 3001",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test:graphs": "node --test tests/graphAnalysisCore.test.mjs",
+    "test:pdf-layout": "node --test tests/pdfTextLayout.test.mjs",
+    "test:text-normalization": "node --test tests/turkishTextNormalization.test.mjs",
+    "test:document-flow": "node --test tests/structureDetection.test.mjs tests/languageDetection.test.mjs tests/pageNavigation.test.mjs tests/exportStructure.test.mjs tests/alignedBrailleRows.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.102.1",

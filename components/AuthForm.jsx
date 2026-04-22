@@ -159,10 +159,10 @@ export function AuthForm({ mode }) {
 
   return (
     <main className="page-shell flex items-center justify-center">
-      <div className="relative grid w-full max-w-5xl gap-6 pt-20 md:pt-24 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="absolute left-0 top-0 z-20">
+      <section className="relative grid w-full max-w-5xl gap-6 pt-20 md:pt-24 lg:grid-cols-[1.1fr_0.9fr]">
+        <header className="absolute left-0 top-0 z-20">
           <BackButton />
-        </div>
+        </header>
 
         <section className="surface-card hero-wash hidden rounded-2xl p-10 lg:block">
           <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">Braille Vision</p>
@@ -288,7 +288,7 @@ export function AuthForm({ mode }) {
             </Link>
           </p>
         </section>
-      </div>
+      </section>
     </main>
   );
 }

@@ -34,18 +34,18 @@ export function NotificationCenter({ notifications, onDismiss }) {
   }
 
   return (
-    <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-[min(100%,380px)] flex-col gap-3">
+    <aside aria-label="Notifications" className="pointer-events-none fixed right-4 top-4 z-50 flex w-[min(100%,380px)] flex-col gap-3">
       {notifications.map((notification) => (
         <article
           key={notification.id}
           className={`pointer-events-auto rounded-[20px] border px-4 py-4 shadow-[0_14px_30px_rgba(15,23,42,0.08)] backdrop-blur-sm ${getNotificationStyles(notification.type)}`}
         >
-          <div className="flex items-start justify-between gap-3">
-            <div>
+          <header className="flex items-start justify-between gap-3">
+            <section>
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em]">{getNotificationTypeLabel(notification.type)}</p>
               <h3 className="mt-2 text-sm font-bold">{notification.title}</h3>
               <p className="mt-1 text-sm leading-6">{notification.message}</p>
-            </div>
+            </section>
             <button
               type="button"
               onClick={() => onDismiss(notification.id)}
@@ -53,9 +53,9 @@ export function NotificationCenter({ notifications, onDismiss }) {
             >
               {t("notifications.close")}
             </button>
-          </div>
+          </header>
         </article>
       ))}
-    </div>
+    </aside>
   );
 }

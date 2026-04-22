@@ -32,7 +32,7 @@ class Lexer:
     })
 
     def __init__(self, source: str | None) -> None:
-        self.source = source or ""
+        self.source = (source or "").replace("−", "-")
         self.position = 0
 
     def tokenize(self) -> List[Token]:

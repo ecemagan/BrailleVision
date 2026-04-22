@@ -1,11 +1,14 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { exportDocuments } from "@/lib/exportDocuments";
 import { buildSearchableDocumentText } from "@/lib/documents";
+import { isReaderRecommended, stripStoredPageMarkers } from "@/lib/documentReview";
 import { useI18n } from "@/components/I18nProvider";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
+import { AlignedBrailleComparison } from "@/components/AlignedBrailleComparison";
 
 function formatDocumentDate(value, locale) {
   return new Intl.DateTimeFormat(locale === "tr" ? "tr-TR" : "en-US", {
@@ -59,6 +62,10 @@ function getEmptyStateCopy(filterKey, t) {
 }
 
 function getDocumentType(document) {
+  if (document.source_type === "graph") {
+    return "graph";
+  }
+
   if (document.source_type === "pdf") {
     return "pdf";
   }
@@ -71,6 +78,10 @@ function getDocumentType(document) {
 }
 
 function getDocumentTypeLabel(type, t) {
+  if (type === "graph") {
+    return t("documents.typeGraph");
+  }
+
   if (type === "pdf") {
     return t("documents.typePdf");
   }
@@ -106,34 +117,7 @@ function getDateFilterMatch(document, dateFilter) {
 }
 
 function DocumentBadges({ document, t }) {
-  const documentType = getDocumentType(document);
-  const isMath = document.conversion_mode === "nemeth";
-
-  return (
-    <div className="mt-3 flex flex-wrap gap-2">
-      <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
-        {getDocumentTypeLabel(documentType, t)}
-      </span>
-      <span
-        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-          isMath ? "border border-amber-200 bg-amber-50 text-amber-700" : "border border-emerald-200 bg-emerald-50 text-emerald-700"
-        }`}
-      >
-        {isMath ? t("documents.modeMath") : t("documents.modeText")}
-      </span>
-      {document.is_favorite ? (
-        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">{t("documents.favorite")}</span>
-      ) : null}
-      {document.is_archived ? (
-        <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">{t("documents.archived")}</span>
-      ) : null}
-      {(document.tags || []).slice(0, 3).map((tag) => (
-        <span key={tag} className="rounded-full border border-violet-200 bg-white px-3 py-1 text-xs font-semibold text-violet-700">
-          #{tag}
-        </span>
-      ))}
-    </div>
-  );
+  return null;
 }
 
 export function DocumentsPanel({
@@ -150,6 +134,7 @@ export function DocumentsPanel({
 }) {
   const isCompact = variant === "compact";
   const isDense = density === "compact";
+  const router = useRouter();
   const { t, locale } = useI18n();
   const searchInputRef = useRef(null);
   const [searchValue, setSearchValue] = useState("");
@@ -161,13 +146,13 @@ export function DocumentsPanel({
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
-  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [previewDetails, setPreviewDetails] = useState(null);
+  const [previewDetailsLoading, setPreviewDetailsLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [busyActionKey, setBusyActionKey] = useState("");
   const [selectedExportFormat, setSelectedExportFormat] = useState("txt");
-  const flaggedIndices = [2, 7, 12];
   const deferredSearch = useDeferredValue(searchValue);
   const filterOptions = [
     { key: "active", label: t("documents.active") },
@@ -183,6 +168,7 @@ export function DocumentsPanel({
   ];
   const typeFilterOptions = [
     { key: "all", label: t("documents.typeAll") },
+    { key: "graph", label: t("documents.typeGraph") },
     { key: "pdf", label: t("documents.typePdf") },
     { key: "image", label: t("documents.typeImage") },
     { key: "text", label: t("documents.typeText") },
@@ -198,18 +184,78 @@ export function DocumentsPanel({
     () => (previewDocumentId ? documents.find((document) => document.id === previewDocumentId) ?? null : null),
     [documents, previewDocumentId],
   );
-  const originalWords = useMemo(
-    () => (previewDocument?.original_text ? previewDocument.original_text.split(" ") : []),
-    [previewDocument],
+  const previewSupportsReader = useMemo(
+    () => {
+      const sourceType = previewDetails?.source_type ?? previewDocument?.source_type;
+      const originalText = previewDetails?.original_text;
+
+      if (!sourceType || originalText === undefined) {
+        return false;
+      }
+
+      return isReaderRecommended({ sourceType, originalText });
+    },
+    [previewDetails, previewDocument],
   );
-  const brailleWords = useMemo(
-    () => (previewDocument?.braille_text ? previewDocument.braille_text.split(" ") : []),
-    [previewDocument],
+  const comparisonNotes = useMemo(
+    () => [
+      t("documents.comparisonNoteAligned"),
+      t("documents.comparisonNoteSpacing"),
+      t("documents.comparisonNoteHover"),
+    ],
+    [t],
   );
 
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  useEffect(() => {
+    if (!previewDocumentId) {
+      setPreviewDetails(null);
+      setPreviewDetailsLoading(false);
+      return;
+    }
+
+    if (!supabase) {
+      setPreviewDetails(null);
+      setPreviewDetailsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewDetailsLoading(true);
+    setPreviewDetails(null);
+
+    (async () => {
+      const { data, error } = await supabase
+        .from("documents")
+        .select("id, original_text, braille_text, source_type")
+        .eq("id", previewDocumentId)
+        .single();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (error) {
+        const friendlyMessage = getFriendlyDocumentMessage(error, t("review.loadFailed"));
+        setActionError(friendlyMessage);
+        onNotify?.({ type: "error", title: t("error.application"), message: friendlyMessage });
+        setPreviewDocumentId(null);
+        setPreviewDetails(null);
+        setPreviewDetailsLoading(false);
+        return;
+      }
+
+      setPreviewDetails(data ?? null);
+      setPreviewDetailsLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onNotify, previewDocumentId, supabase, t]);
 
   useEffect(() => {
     if (!isCompact && focusSearchSignal > 0) {
@@ -225,6 +271,7 @@ export function DocumentsPanel({
     function handleKeyDown(event) {
       if (event.key === "Escape") {
         setDeleteTarget(null);
+        setPreviewDocumentId(null);
       }
     }
 
@@ -304,7 +351,8 @@ export function DocumentsPanel({
 
   function closePreview() {
     setPreviewDocumentId(null);
-    setHoveredIndex(null);
+    setPreviewDetails(null);
+    setPreviewDetailsLoading(false);
   }
 
   function resetMessages() {
@@ -354,7 +402,23 @@ export function DocumentsPanel({
 
   async function handleCopyBraille(documentToCopy) {
     try {
-      await navigator.clipboard.writeText(documentToCopy.braille_text);
+      let brailleText = documentToCopy.braille_text;
+
+      if (brailleText === undefined && supabase) {
+        const { data, error } = await supabase
+          .from("documents")
+          .select("braille_text")
+          .eq("id", documentToCopy.id)
+          .single();
+
+        if (error) {
+          throw error;
+        }
+
+        brailleText = data?.braille_text || "";
+      }
+
+      await navigator.clipboard.writeText(stripStoredPageMarkers(brailleText || ""));
       setActionError("");
       setActionMessage(t("documents.brailleCopiedFrom", { name: documentToCopy.file_name }));
       onNotify?.({
@@ -495,7 +559,32 @@ export function DocumentsPanel({
     resetMessages();
 
     try {
-      await exportDocuments(itemsToExport, format);
+      let exportItems = itemsToExport;
+
+      if (supabase) {
+        const idsToHydrate = itemsToExport
+          .filter((item) => item.original_text === undefined || item.braille_text === undefined)
+          .map((item) => item.id);
+
+        if (idsToHydrate.length) {
+          const { data, error } = await supabase
+            .from("documents")
+            .select("id, original_text, braille_text, file_name, source_type, conversion_mode, tags")
+            .in("id", idsToHydrate);
+
+          if (error) {
+            throw error;
+          }
+
+          const hydratedById = new Map((data ?? []).map((item) => [item.id, item]));
+          exportItems = itemsToExport.map((item) => {
+            const hydrated = hydratedById.get(item.id);
+            return hydrated ? { ...item, ...hydrated } : item;
+          });
+        }
+      }
+
+      await exportDocuments(exportItems, format);
       const message =
         itemsToExport.length === 1
           ? t("documents.exportCompleteMessageSingle", { name: itemsToExport[0].file_name, format: format.toUpperCase() })
@@ -516,14 +605,8 @@ export function DocumentsPanel({
   }
 
   return (
-    <section className={`surface-card ${isDense ? "rounded-2xl p-5 md:p-6" : "rounded-2xl p-6 md:p-8"}`}>
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="mt-2 text-4xl font-bold tracking-tight text-slate-950 md:text-[2.8rem]">
-            {isCompact ? t("documents.recentDocuments") : t("documents.library")}
-          </h2>
-        </div>
-      </div>
+    <section className="space-y-6">
+      <section className={`surface-card ${isDense ? "rounded-[28px] p-5 md:p-6" : "rounded-[28px] p-6 md:p-7"}`}>
 
       {errorMessage ? (
         <p className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errorMessage}</p>
@@ -536,29 +619,29 @@ export function DocumentsPanel({
       {actionMessage ? <p className="info-chip mt-4 rounded-2xl px-4 py-3 text-sm font-semibold">{actionMessage}</p> : null}
 
       {loading ? (
-        <div className="mt-8 grid gap-4">
+        <section className="mt-8 grid gap-4">
           {[1, 2, 3].map((item) => (
-            <div key={item} className="glass-card animate-pulse rounded-2xl p-5">
-              <div className="h-4 w-40 rounded bg-slate-200" />
-              <div className="mt-3 h-3 w-28 rounded bg-slate-100" />
-              <div className="mt-4 h-3 w-full rounded bg-slate-100" />
-              <div className="mt-2 h-3 w-5/6 rounded bg-slate-100" />
-            </div>
+            <article key={item} className="glass-card animate-pulse rounded-2xl p-5">
+              <span className="block h-4 w-40 rounded bg-slate-200" />
+              <span className="mt-3 block h-3 w-28 rounded bg-slate-100" />
+              <span className="mt-4 block h-3 w-full rounded bg-slate-100" />
+              <span className="mt-2 block h-3 w-5/6 rounded bg-slate-100" />
+            </article>
           ))}
-        </div>
+        </section>
       ) : null}
 
       {!loading && documents.length === 0 ? (
-        <div className="glass-card mt-10 flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 p-8 text-center">
-          <div className="relative mb-6 h-24 w-40">
-            <div className="absolute inset-x-0 bottom-0 h-2 rounded-full bg-violet-200/70" />
-            <div className="absolute left-3 top-8 h-14 w-7 rounded-md border border-violet-200 bg-violet-50" />
-            <div className="absolute left-12 top-4 h-16 w-7 rounded-md border border-violet-200 bg-white" />
-            <div className="absolute left-[5.25rem] top-10 h-12 w-7 rounded-md border border-violet-200 bg-violet-50/70" />
-            <div className="absolute left-[7.5rem] top-2 h-20 w-7 rounded-md border border-violet-200 bg-white" />
-          </div>
+        <section className="glass-card mt-10 flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 p-8 text-center">
+          <figure className="relative mb-6 h-24 w-40">
+            <span className="absolute inset-x-0 bottom-0 block h-2 rounded-full bg-violet-200/70" />
+            <span className="absolute left-3 top-8 block h-14 w-7 rounded-md border border-violet-200 bg-violet-50" />
+            <span className="absolute left-12 top-4 block h-16 w-7 rounded-md border border-violet-200 bg-white" />
+            <span className="absolute left-[5.25rem] top-10 block h-12 w-7 rounded-md border border-violet-200 bg-violet-50/70" />
+            <span className="absolute left-[7.5rem] top-2 block h-20 w-7 rounded-md border border-violet-200 bg-white" />
+          </figure>
           <p className="max-w-xl text-lg font-semibold text-slate-900">{t("documents.emptyLibraryDescription")}</p>
-          <div className="mt-7">
+          <section className="mt-7">
             <button
               type="button"
               onClick={onCreateFirstDocument}
@@ -566,17 +649,17 @@ export function DocumentsPanel({
             >
               {t("documents.startConversion")}
             </button>
-          </div>
-        </div>
+          </section>
+        </section>
       ) : null}
 
       {!loading && documents.length > 0 ? (
-        <div className="mt-8 space-y-6">
+        <section className="mt-8 space-y-6">
           {!isCompact ? (
             <>
-              <div className="surface-muted rounded-2xl p-4 md:p-5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                  <div className="flex-1">
+              <section className="surface-muted rounded-2xl p-4 md:p-5">
+                <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <section className="flex-1">
                     <label className="text-sm font-semibold text-slate-700" htmlFor="document-search">
                       {t("documents.searchLibrary")}
                     </label>
@@ -589,9 +672,9 @@ export function DocumentsPanel({
                       placeholder={t("documents.searchPlaceholder")}
                       className="field-input mt-2 w-full rounded-2xl px-4 py-3 text-slate-950 outline-none transition"
                     />
-                  </div>
+                  </section>
 
-                  <div className="flex items-center gap-2">
+                  <section className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setViewMode("grid")}
@@ -610,11 +693,11 @@ export function DocumentsPanel({
                     >
                       ☰ {t("documents.list")}
                     </button>
-                  </div>
-                </div>
+                  </section>
+                </section>
 
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  <div>
+                <section className="mt-4 grid gap-3 md:grid-cols-3">
+                  <section>
                     <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="date-filter">
                       {t("documents.date")}
                     </label>
@@ -628,9 +711,9 @@ export function DocumentsPanel({
                         <option key={option.key} value={option.key}>{option.label}</option>
                       ))}
                     </select>
-                  </div>
+                  </section>
 
-                  <div>
+                  <section>
                     <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="tag-filter">
                       {t("documents.tag")}
                     </label>
@@ -645,9 +728,9 @@ export function DocumentsPanel({
                         <option key={tag} value={tag}>#{tag}</option>
                       ))}
                     </select>
-                  </div>
+                  </section>
 
-                  <div>
+                  <section>
                     <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="type-filter">
                       {t("documents.type")}
                     </label>
@@ -661,10 +744,10 @@ export function DocumentsPanel({
                         <option key={option.key} value={option.key}>{option.label}</option>
                       ))}
                     </select>
-                  </div>
-                </div>
+                  </section>
+                </section>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <nav className="mt-4 flex flex-wrap gap-2">
                   {filterOptions.map((option) => (
                     <button
                       key={option.key}
@@ -677,16 +760,16 @@ export function DocumentsPanel({
                       {option.label}
                     </button>
                   ))}
-                </div>
-              </div>
+                </nav>
+              </section>
 
               {selectedIds.length > 0 ? (
-                <div className="surface-muted rounded-2xl p-4">
-                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <section className="surface-muted rounded-2xl p-4">
+                  <section className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <p className="text-sm font-semibold text-violet-800">
                       {t("documents.selected", { count: selectedIds.length })}
                     </p>
-                    <div className="flex flex-wrap gap-2">
+                    <section className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={handleBulkFavorite}
@@ -730,13 +813,13 @@ export function DocumentsPanel({
                       >
                         {t("documents.delete")}
                       </button>
-                    </div>
-                  </div>
-                </div>
+                    </section>
+                  </section>
+                </section>
               ) : null}
 
               {visibleDocuments.length > 0 ? (
-                <div className="flex items-center justify-start gap-3">
+                <section className="flex items-center justify-start gap-3">
                   <button
                     type="button"
                     onClick={selectAllVisible}
@@ -744,41 +827,57 @@ export function DocumentsPanel({
                   >
                     {selectedIds.length === visibleDocuments.length ? t("documents.clearSelection") : t("documents.selectVisible")}
                   </button>
-                </div>
+                </section>
               ) : null}
             </>
           ) : null}
 
           {visibleDocuments.length > 0 ? (
-            <div className={`grid gap-4 ${viewMode === "grid" ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "grid-cols-1"}`}>
+            <section className={`grid auto-rows-fr gap-4 ${viewMode === "grid" ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "grid-cols-1"}`}>
               {visibleDocuments.map((documentToRender) => (
                 <article
                   key={documentToRender.id}
-                  className="glass-card rounded-2xl p-5 transition"
+                  className="glass-card h-full min-h-[31rem] rounded-2xl p-5 transition"
                 >
-                  <div className="flex flex-col gap-4">
+                  <section className="grid h-full grid-rows-[minmax(0,13rem)_minmax(8.5rem,1fr)_auto] gap-4">
                     <button
                       type="button"
                       onClick={() => openPreview(documentToRender.id)}
-                      className="rounded-2xl border border-slate-700/70 bg-slate-900 p-4 text-left shadow-[inset_0_0_20px_rgba(15,23,42,0.7)] transition"
+                      className="flex h-full min-h-[13rem] flex-col rounded-2xl border border-slate-700/70 bg-slate-900 p-4 text-left shadow-[inset_0_0_20px_rgba(15,23,42,0.7)] transition"
                     >
-                      <div className="flex items-center justify-between gap-3">
+                      <span className="flex items-center justify-between gap-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("documents.braillePreview")}</p>
                         <span className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-200">
                           {t("documents.inspectFullText")}
                         </span>
-                      </div>
-                      <p className="mt-3 break-all text-lg leading-8 text-amber-100 [text-shadow:0_0_8px_rgba(250,204,21,0.35)]">
-                        {truncateText(documentToRender.braille_text, 120)}
+                      </span>
+                      <p
+                        className="mt-3 overflow-hidden break-all text-lg leading-8 text-amber-100 [text-shadow:0_0_8px_rgba(250,204,21,0.35)]"
+                        style={{
+                          display: "-webkit-box",
+                          WebkitBoxOrient: "vertical",
+                          WebkitLineClamp: 5,
+                        }}
+                      >
+                        {truncateText(stripStoredPageMarkers(documentToRender.braille_text), 120)}
                       </p>
                     </button>
 
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="truncate text-xl font-bold text-slate-950">{documentToRender.file_name}</h3>
+                    <section className="flex min-h-[8.5rem] flex-col gap-3">
+                      <header className="flex items-start justify-between gap-3">
+                        <section className="min-w-0">
+                          <h3
+                            className="overflow-hidden text-xl font-bold leading-7 text-slate-950"
+                            style={{
+                              display: "-webkit-box",
+                              WebkitBoxOrient: "vertical",
+                              WebkitLineClamp: 2,
+                            }}
+                          >
+                            {documentToRender.file_name}
+                          </h3>
                           <p className="mt-1 text-sm text-slate-500">{formatDocumentDate(documentToRender.created_at, locale)}</p>
-                        </div>
+                        </section>
                         {!isCompact ? (
                           <input
                             type="checkbox"
@@ -787,83 +886,96 @@ export function DocumentsPanel({
                             className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600"
                           />
                         ) : null}
-                      </div>
+                      </header>
 
-                      <DocumentBadges document={documentToRender} t={t} />
-                    </div>
+                      <section className="min-h-[3.5rem]">
+                        <DocumentBadges document={documentToRender} t={t} />
+                      </section>
+                    </section>
 
-                    <div className={`flex flex-wrap gap-2 ${viewMode === "list" ? "md:justify-end" : ""}`}>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyBraille(documentToRender)}
-                        className="button-secondary rounded-full px-3.5 py-2 text-xs font-semibold transition"
-                      >
-                        {t("documents.copy")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFavorite(documentToRender)}
-                        disabled={busyActionKey === `favorite:${documentToRender.id}`}
-                        className="button-secondary rounded-full px-3.5 py-2 text-xs font-semibold transition disabled:opacity-60"
-                      >
-                        {documentToRender.is_favorite ? t("documents.unfavorite") : t("documents.favorite")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleArchive(documentToRender)}
-                        disabled={busyActionKey === `archive:${documentToRender.id}`}
-                        className="button-secondary rounded-full px-3.5 py-2 text-xs font-semibold transition disabled:opacity-60"
-                      >
-                        {documentToRender.is_archived ? t("documents.restore") : t("documents.archive")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setDeleteTarget({ type: "single", ...documentToRender });
-                        }}
-                        className="rounded-full border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-700 transition"
-                      >
-                        {t("documents.delete")}
-                      </button>
-                    </div>
-                  </div>
+                    <footer className="border-t border-slate-200/80 pt-4">
+                      <section className={`grid gap-2 ${viewMode === "list" ? "sm:grid-cols-4" : "grid-cols-2"}`}>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyBraille(documentToRender)}
+                          className="button-secondary inline-flex h-10 items-center justify-center rounded-full px-3.5 py-2 text-center text-xs font-semibold transition"
+                        >
+                          {t("documents.copy")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFavorite(documentToRender)}
+                          disabled={busyActionKey === `favorite:${documentToRender.id}`}
+                          className="button-secondary inline-flex h-10 items-center justify-center rounded-full px-3.5 py-2 text-center text-xs font-semibold transition disabled:opacity-60"
+                        >
+                          {documentToRender.is_favorite ? t("documents.unfavorite") : t("documents.favorite")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleArchive(documentToRender)}
+                          disabled={busyActionKey === `archive:${documentToRender.id}`}
+                          className="button-secondary inline-flex h-10 items-center justify-center rounded-full px-3.5 py-2 text-center text-xs font-semibold transition disabled:opacity-60"
+                        >
+                          {documentToRender.is_archived ? t("documents.restore") : t("documents.archive")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setDeleteTarget({ type: "single", ...documentToRender });
+                          }}
+                          className="inline-flex h-10 items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-3.5 py-2 text-center text-xs font-semibold text-rose-700 transition"
+                        >
+                          {t("documents.delete")}
+                        </button>
+                      </section>
+                    </footer>
+                  </section>
                 </article>
               ))}
-            </div>
+            </section>
           ) : (
             !isCompact && (
-              <div className="glass-card rounded-2xl border border-dashed border-violet-200 p-8 text-center">
+              <section className="glass-card rounded-2xl border border-dashed border-violet-200 p-8 text-center">
                 <p className="text-2xl font-bold text-slate-950">{emptyCopy.title}</p>
-              </div>
+              </section>
             )
           )}
-        </div>
+        </section>
       ) : null}
 
       {isClient && previewDocument
         ? createPortal(
-            <div
+            <section
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
               onClick={closePreview}
             >
-              <div
+              <section
                 role="dialog"
                 aria-modal="true"
                 className="w-full max-w-4xl max-h-[85vh] overflow-y-auto bg-[var(--surface-strong)] rounded-2xl shadow-2xl p-6 flex flex-col"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="border-b border-slate-200 px-5 py-5 md:px-7">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div className="min-w-0">
+                <header className="border-b border-slate-200 px-5 py-5 md:px-7">
+                  <section className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <section className="min-w-0">
                       <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">{t("documents.documentReview")}</p>
                       <h3 className="mt-2 truncate text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">
                         {previewDocument.file_name}
                       </h3>
                       <p className="mt-2 text-sm text-slate-500">{formatDocumentDate(previewDocument.created_at, locale)}</p>
                       <DocumentBadges document={previewDocument} t={t} />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
+                    </section>
+                    <section className="flex flex-wrap gap-2">
+                      {previewSupportsReader ? (
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/dashboard/review?document=${previewDocument.id}`)}
+                          className="button-primary rounded-full px-4 py-2 text-sm font-semibold transition"
+                        >
+                          {t("documents.openReader")}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => handleCopyBraille(previewDocument)}
@@ -875,7 +987,12 @@ export function DocumentsPanel({
                         <button
                           key={option.value}
                           type="button"
-                          onClick={() => handleExportDocuments([previewDocument], option.value)}
+                          onClick={() =>
+                            handleExportDocuments(
+                              [previewDetails ? { ...previewDocument, ...previewDetails } : previewDocument],
+                              option.value,
+                            )
+                          }
                           className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
                         >
                           {t("documents.export")} {option.label}
@@ -888,86 +1005,42 @@ export function DocumentsPanel({
                       >
                         {t("common.close")}
                       </button>
-                    </div>
-                  </div>
-                </div>
+                    </section>
+                  </section>
+                </header>
 
-                <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-2">
-                  <article className="flex min-h-0 flex-col border-b border-slate-200 px-5 py-5 lg:border-b-0 lg:border-r lg:px-7">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t("documents.originalText")}</p>
-                    <div className="mt-4 min-h-0 overflow-y-auto whitespace-pre-wrap pr-1 text-base leading-7 text-slate-700">
-                      {originalWords.map((word, index) => (
-                        (() => {
-                          const isFlagged = flaggedIndices.includes(index);
-                          const isHovered = hoveredIndex === index;
-                          let wordClassName = "transition-colors duration-200 cursor-default";
-
-                          if (isFlagged && isHovered) {
-                            wordClassName = "bg-red-500 text-white shadow-md scale-105 ring-2 ring-red-300 z-10 relative transition-colors duration-200 cursor-default";
-                          } else if (isFlagged) {
-                            wordClassName = "bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200 transition-colors duration-200 cursor-default";
-                          } else if (isHovered) {
-                            wordClassName = "bg-[var(--accent)] text-[var(--primary)] transition-colors duration-200 cursor-default";
-                          }
-
-                          return (
-                        <span
-                          key={`original-${index}`}
-                          onMouseEnter={() => setHoveredIndex(index)}
-                          onMouseLeave={() => setHoveredIndex(null)}
-                          className={wordClassName}
-                        >
-                          {word}{" "}
-                        </span>
-                          );
-                        })()
-                      ))}
-                    </div>
-                  </article>
-
-                  <article className="flex min-h-0 flex-col px-5 py-5 lg:px-7">
-                    <p className="accent-label text-xs font-semibold uppercase tracking-[0.2em]">{t("documents.brailleOutput")}</p>
-                    <div className="mt-4 min-h-0 overflow-y-auto whitespace-pre-wrap break-all pr-1 text-2xl leading-10 text-slate-950">
-                      {brailleWords.map((word, index) => (
-                        (() => {
-                          const isFlagged = flaggedIndices.includes(index);
-                          const isHovered = hoveredIndex === index;
-                          let wordClassName = "transition-colors duration-200 cursor-default";
-
-                          if (isFlagged && isHovered) {
-                            wordClassName = "bg-red-500 text-white shadow-md scale-105 ring-2 ring-red-300 z-10 relative transition-colors duration-200 cursor-default";
-                          } else if (isFlagged) {
-                            wordClassName = "bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200 transition-colors duration-200 cursor-default";
-                          } else if (isHovered) {
-                            wordClassName = "bg-[var(--accent)] text-[var(--primary)] transition-colors duration-200 cursor-default";
-                          }
-
-                          return (
-                        <span
-                          key={`braille-${index}`}
-                          className={wordClassName}
-                        >
-                          {word}{" "}
-                        </span>
-                          );
-                        })()
-                      ))}
-                    </div>
-                  </article>
-                </div>
-              </div>
-            </div>,
+                <section className="min-h-0 flex-1 overflow-y-auto px-5 py-5 md:px-7">
+                  {previewDetailsLoading ? (
+                    <section className="flex items-center justify-center py-16">
+                      <span className="block h-8 w-8 animate-spin rounded-full border-[3px] border-violet-200 border-t-violet-600" />
+                    </section>
+                  ) : previewDetails ? (
+                    <AlignedBrailleComparison
+                      originalText={previewDetails.original_text}
+                      brailleText={stripStoredPageMarkers(previewDetails.braille_text)}
+                      originalLabel={t("documents.originalText")}
+                      brailleLabel={t("documents.brailleOutput")}
+                      notesTitle={t("documents.comparisonNotesTitle")}
+                      notes={comparisonNotes}
+                      wordsPerRow={8}
+                      interactive
+                      compact
+                    />
+                  ) : null}
+                </section>
+              </section>
+            </section>,
             document.body,
           )
         : null}
 
       {isClient && deleteTarget
         ? createPortal(
-            <div
+            <section
               className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm"
               onClick={() => setDeleteTarget(null)}
             >
-              <div
+              <section
                 role="dialog"
                 aria-modal="true"
                 className="surface-card w-full max-w-md rounded-2xl p-6"
@@ -981,7 +1054,7 @@ export function DocumentsPanel({
                   {t("documents.deleteDescription")}
                 </p>
 
-                <div className="mt-6 flex flex-wrap gap-3">
+                <section className="mt-6 flex flex-wrap gap-3">
                   <button
                     type="button"
                     onClick={() => setDeleteTarget(null)}
@@ -998,12 +1071,13 @@ export function DocumentsPanel({
                   >
                     {busyActionKey === "delete" ? t("documents.deleting") : t("documents.deletePermanently")}
                   </button>
-                </div>
-              </div>
-            </div>,
+                </section>
+              </section>
+            </section>,
             document.body,
           )
         : null}
+      </section>
     </section>
   );
 }

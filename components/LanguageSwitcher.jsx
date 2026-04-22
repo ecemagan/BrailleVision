@@ -6,7 +6,10 @@ export function LanguageSwitcher() {
   const { locale, setLocale } = useI18n();
 
   return (
-    <div className="glass-card inline-flex w-fit max-w-full rounded-full border border-[var(--primary)] bg-white/80 p-1 text-xs font-semibold backdrop-blur-md shadow-[0_10px_24px_color-mix(in_srgb,var(--primary)_18%,transparent)]">
+    <nav
+      aria-label="Language"
+      className="glass-card inline-flex w-fit max-w-full rounded-full border border-[var(--primary)] bg-white/80 p-1 text-xs font-semibold backdrop-blur-md shadow-[0_10px_24px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
+    >
       <button
         type="button"
         onClick={() => setLocale("tr")}
@@ -25,6 +28,6 @@ export function LanguageSwitcher() {
       >
         EN
       </button>
-    </div>
+    </nav>
   );
 }
