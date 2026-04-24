@@ -1,48 +1,41 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  PAGE_BREAK_MARKER,
-  buildReviewPagesFromDocument,
-  splitStoredTextIntoPages,
-} from "../lib/documentReview.js";
+import { alignBrailleTextToOriginalBlocks } from "../lib/documentReview.js";
 
-test("preserves legacy pdf text as a single review page when no page markers exist", () => {
-  const originalText = [
-    "1. Sum Rule: lim (f(x) + g(x)) = L + M",
-    "x→c",
-    "",
-    "2. Difference Rule: lim (f(x) - g(x)) = L - M",
-    "x→c",
-  ].join("\n");
-
-  assert.deepEqual(splitStoredTextIntoPages(originalText, "pdf"), [originalText]);
-});
-
-test("buildReviewPagesFromDocument keeps pdf original and braille text aligned without repagination", () => {
-  const originalText = [
-    "1. Sum Rule: lim (f(x) + g(x)) = L + M",
-    "x→c",
-  ].join("\n");
-  const brailleText = "⠼⠁ ⠠⠎⠥⠍ ⠠⠗⠥⠇⠑";
-
-  assert.deepEqual(buildReviewPagesFromDocument({
-    source_type: "pdf",
-    original_text: originalText,
-    braille_text: brailleText,
-  }), [
+test("alignBrailleTextToOriginalBlocks preserves the original block tree ids while attaching braille text", () => {
+  const originalBlocks = [
     {
-      pageNumber: 1,
-      originalText,
-      brailleText,
-      structureMode: "line_preserved",
-      language: "unknown",
+      id: "page-1-block-0",
+      type: "section_header",
+      originalContent: "2.2 Limit of a Function and Limit Laws 69",
+      normalizedContent: "2.2 Limit of a Function and Limit Laws 69",
     },
-  ]);
-});
+    {
+      id: "page-1-block-1",
+      type: "equation_group",
+      originalContent: "f(x) = x^2",
+      normalizedContent: "f(x) = x^2",
+      children: [
+        {
+          id: "page-1-block-1-step-01",
+          type: "equation_step",
+          originalContent: "f(x) = x^2",
+          normalizedContent: "f(x) = x^2",
+        },
+      ],
+    },
+  ];
 
-test("still honors explicit stored page markers for pdf documents", () => {
-  const originalText = ["page one", "page two"].join(`\n${PAGE_BREAK_MARKER}\n`);
+  const alignedBlocks = alignBrailleTextToOriginalBlocks(
+    originalBlocks,
+    "⠼⠃⠲⠼⠃ ⠠⠇⠊⠍⠊⠞ ⠕⠋ ⠁ ⠠⠋⠥⠝⠉⠞⠊⠕⠝ ⠁⠝⠙ ⠠⠇⠊⠍⠊⠞ ⠠⠇⠁⠺⠎ ⠼⠋⠊\n\n⠋⠷⠭⠾⠀⠶⠀⠭⠘⠆",
+  );
 
-  assert.deepEqual(splitStoredTextIntoPages(originalText, "pdf"), ["page one", "page two"]);
+  assert.equal(alignedBlocks.length, 2);
+  assert.equal(alignedBlocks[0].id, "page-1-block-0");
+  assert.equal(alignedBlocks[1].id, "page-1-block-1");
+  assert.equal(alignedBlocks[1].children[0].id, "page-1-block-1-step-01");
+  assert.match(alignedBlocks[0].brailleContent, /⠠⠇⠊⠍⠊⠞/u);
+  assert.match(alignedBlocks[1].children[0].brailleContent, /⠋⠷⠭⠾/u);
 });

@@ -6,14 +6,16 @@ import { analyzeBrailleReadability, suggestDocumentTags } from "@/lib/brailleAss
 import { convertToBraille } from "@/lib/convertToBraille";
 import { processDocumentInput } from "@/lib/documentProcessing";
 import { normalizeTags, saveDocumentRecord } from "@/lib/documents";
-import { isReaderRecommended, joinPagesForStorage, stripStoredPageMarkers } from "@/lib/documentReview";
+import { alignBrailleTextToOriginalBlocks, isReaderRecommended, joinPagesForStorage, stripStoredPageMarkers } from "@/lib/documentReview";
 import { exportDocuments } from "@/lib/exportDocuments";
 import { extractImageText } from "@/lib/extractImageText";
 import { extractPdfContent } from "@/lib/extractPdfText";
 import { translateBrailleText } from "@/lib/translateBrailleText";
-import { AlignedBrailleComparison } from "@/components/AlignedBrailleComparison";
+import { BlockAlignedComparison } from "@/components/BlockAlignedComparison";
+import { PageSegmentationDebugPanel } from "@/components/PageSegmentationDebugPanel";
 import { useI18n } from "@/components/I18nProvider";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
+import { segmentPlainTextPage } from "@/lib/pageSegmentation";
 
 function detectConversionMode(text, sourceType) {
   if (sourceType === "image" || sourceType === "camera") {
@@ -21,6 +23,37 @@ function detectConversionMode(text, sourceType) {
   }
 
   return /[=+\-*/^_()[\]{}<>]|sqrt|log|ln|sin|cos|tan/i.test(text) ? "nemeth" : "text";
+}
+
+async function translateBlockTree(block, conversionMode) {
+  const children = Array.isArray(block?.children) ? block.children : [];
+  const translatedChildren = children.length
+    ? await Promise.all(children.map((child) => translateBlockTree(child, conversionMode)))
+    : [];
+
+  const content = String(block?.normalizedContent || "").trim();
+  let brailleContent = "";
+
+  if (translatedChildren.length) {
+    brailleContent = translatedChildren
+      .map((child) => child.brailleContent)
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+  } else if (content) {
+    brailleContent =
+      block.type === "equation_group"
+        ? convertToBraille(content)
+        : conversionMode === "text"
+          ? await translateBrailleText(content)
+          : convertToBraille(content);
+  }
+
+  return {
+    ...block,
+    children: translatedChildren.length ? translatedChildren : block.children,
+    brailleContent,
+  };
 }
 
 export function UploadPanel({
@@ -44,6 +77,7 @@ export function UploadPanel({
   const [brailleResult, setBrailleResult] = useState("");
   const [sourceText, setSourceText] = useState("");
   const [resultDocument, setResultDocument] = useState(null);
+  const [resultPageBlocks, setResultPageBlocks] = useState([]);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -53,6 +87,7 @@ export function UploadPanel({
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [resultStructureMode, setResultStructureMode] = useState("plain_prose");
   const [resultLanguage, setResultLanguage] = useState("unknown");
+  const shouldShowSegmentationDebug = process.env.NODE_ENV !== "production";
   const allowedDocumentExtensions = useMemo(() => ["pdf", "txt", "jpg", "jpeg", "png"], []);
 
   useEffect(() => {
@@ -209,6 +244,7 @@ export function UploadPanel({
           fileName: selectedFile.name,
           originalText: pdfContent.text,
           pageTexts: pdfContent.pages,
+          pageLayouts: pdfContent.pageLayouts,
           sourceType: "pdf",
         };
       }
@@ -256,6 +292,24 @@ export function UploadPanel({
       manualTags,
     );
   }, [manualText, selectedFile, selectedSourceType, sourceText, tagInput]);
+
+  const previewOriginalBlocks = useMemo(
+    () =>
+      resultPageBlocks.some((payload) => payload?.blocks?.length)
+        ? resultPageBlocks.flatMap((payload) => payload.blocks || [])
+        : sourceText
+          ? segmentPlainTextPage(sourceText, 1)
+          : [],
+    [resultPageBlocks, sourceText],
+  );
+
+  const previewBlocks = useMemo(() => {
+    if (!brailleResult) {
+      return [];
+    }
+
+    return alignBrailleTextToOriginalBlocks(previewOriginalBlocks, brailleResult);
+  }, [brailleResult, previewOriginalBlocks]);
 
   async function handleCopyResult() {
     if (!brailleResult) {
@@ -309,6 +363,7 @@ export function UploadPanel({
     setBrailleResult("");
     setSourceText("");
     setResultDocument(null);
+    setResultPageBlocks([]);
     setResultStructureMode("plain_prose");
     setResultLanguage("unknown");
     setSuccessMessage("");
@@ -323,24 +378,57 @@ export function UploadPanel({
     setCopyMessage("");
 
     try {
-      const { fileName, originalText, sourceType, pageTexts = [] } = await getInputText();
+      const { fileName, originalText, sourceType, pageTexts = [], pageLayouts = [] } = await getInputText();
       const conversionMode = detectConversionMode(originalText, sourceType);
       const processedInput = processDocumentInput({
         originalText,
         sourceType,
         pageTexts,
+        pageLayouts,
         conversionMode,
         useImprovedText,
+        includeSegmentationDebug: shouldShowSegmentationDebug,
       });
       const analysis = analyzeBrailleReadability(processedInput.text, sourceType, conversionMode);
       const normalizedText = processedInput.text;
-      const nextPageTexts = processedInput.pages.map((page) => page.originalText).filter(Boolean);
+
+      const pageBlockPayloads = Array.isArray(processedInput.pageBlocks) ? processedInput.pageBlocks : [];
+      const hasBlocks = pageBlockPayloads.some((payload) => payload?.blocks?.length);
+
+      const nextPageTexts = hasBlocks
+        ? pageBlockPayloads
+            .map((payload) => payload.blocks.map((block) => block.normalizedContent).filter(Boolean).join("\n\n").trim())
+            .filter(Boolean)
+        : processedInput.pages.map((page) => page.originalText).filter(Boolean);
+
       const storedOriginalText = nextPageTexts.length > 1 ? joinPagesForStorage(nextPageTexts) : normalizedText;
       const displayOriginalText = stripStoredPageMarkers(storedOriginalText);
-      const braillePages =
-        conversionMode === "text"
+
+      const translatedPageBlocks = hasBlocks
+        ? await Promise.all(
+            pageBlockPayloads.map(async (payload) => {
+              const translatedBlocks = await Promise.all((payload?.blocks || []).map((block) => translateBlockTree(block, conversionMode)));
+
+              return {
+                ...payload,
+                blocks: translatedBlocks,
+              };
+            }),
+          )
+        : [];
+
+      const braillePages = hasBlocks
+        ? translatedPageBlocks.map((payload) =>
+            (payload.blocks || [])
+              .map((block) => block.brailleContent)
+              .filter(Boolean)
+              .join("\n\n")
+              .trim(),
+          )
+        : conversionMode === "text"
           ? await Promise.all(nextPageTexts.map((pageText) => translateBrailleText(pageText)))
           : nextPageTexts.map((pageText) => convertToBraille(pageText));
+
       const brailleText = nextPageTexts.length > 1 ? joinPagesForStorage(braillePages) : braillePages[0] || "";
       const displayBrailleText = stripStoredPageMarkers(brailleText);
       const tags = normalizeTags([
@@ -374,6 +462,17 @@ export function UploadPanel({
       setBrailleResult(displayBrailleText);
       setResultStructureMode(processedInput.structureMode);
       setResultLanguage(processedInput.language);
+      setResultPageBlocks(translatedPageBlocks);
+
+      if (shouldShowSegmentationDebug && typeof window !== "undefined") {
+        window.__BRAILLEVISION_SEGMENTATION_DEBUG__ = {
+          fileName,
+          pageLayouts,
+          pageBlocks: translatedPageBlocks,
+          pageSegmentationDebug: processedInput.pageSegmentationDebug || [],
+        };
+      }
+
       setResultDocument({
         ...nextResultDocument,
         id: savedDocument?.id,
@@ -588,13 +687,13 @@ export function UploadPanel({
 
               {copyMessage ? <p className="mt-4 text-sm font-semibold text-emerald-300">{copyMessage}</p> : null}
 
-              <div className="mt-5 min-h-[320px] rounded-2xl border border-slate-700/70 bg-gradient-to-b from-slate-950 to-slate-900 px-5 py-5 shadow-[inset_0_0_28px_rgba(15,23,42,0.8)]">
+              <div className="mt-5 min-h-80 rounded-2xl border border-slate-700/70 bg-linear-to-b from-slate-950 to-slate-900 px-5 py-5 shadow-[inset_0_0_28px_rgba(15,23,42,0.8)]">
                 {brailleResult ? (
                   <div className="max-h-[48vh] overflow-y-auto whitespace-pre-wrap break-all text-[2rem] leading-[1.9] text-amber-100 [text-shadow:0_0_10px_rgba(250,204,21,0.38),0_0_20px_rgba(255,255,255,0.16)] md:text-[2.5rem]">
                     {brailleResult}
                   </div>
                 ) : (
-                  <div className="flex h-full min-h-[280px] items-center justify-center text-center text-sm text-slate-400">
+                  <div className="flex h-full min-h-70 items-center justify-center text-center text-sm text-slate-400">
                     {t("upload.previewPlaceholder")}
                   </div>
                 )}
@@ -670,9 +769,8 @@ export function UploadPanel({
             </div>
           </div>
 
-          <AlignedBrailleComparison
-            originalText={sourceText}
-            brailleText={brailleResult}
+          <BlockAlignedComparison
+            blocks={previewBlocks}
             originalLabel={t("review.originalPage")}
             brailleLabel={t("review.braillePage")}
             notesTitle={t("review.notesTitle")}
@@ -681,9 +779,9 @@ export function UploadPanel({
               t("review.noteSpacing"),
               t("review.noteSync"),
             ]}
-            interactive
-            mode={resultStructureMode}
           />
+
+          {shouldShowSegmentationDebug ? <PageSegmentationDebugPanel pages={resultPageBlocks} /> : null}
         </section>
       ) : null}
     </section>

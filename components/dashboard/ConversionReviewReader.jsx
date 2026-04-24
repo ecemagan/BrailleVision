@@ -4,14 +4,17 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { BackButton } from "@/components/BackButton";
-import { AlignedBrailleComparison } from "@/components/AlignedBrailleComparison";
+import { BlockAlignedComparison } from "@/components/BlockAlignedComparison";
 import { useAuth } from "@/components/AuthProvider";
 import { useI18n } from "@/components/I18nProvider";
-import { buildReviewPagesFromDocument, isReaderRecommended } from "@/lib/documentReview";
+import { alignBrailleTextToOriginalBlocks, buildReviewPagesFromDocument, isReaderRecommended } from "@/lib/documentReview";
 import { getSourceLabel } from "@/lib/documents";
 import { exportDocuments } from "@/lib/exportDocuments";
 import { resolvePageJump } from "@/lib/pageNavigation";
+import { segmentPlainTextPage } from "@/lib/pageSegmentation";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
+
+const reviewDocumentCache = new Map();
 
 function formatReviewDate(value, locale) {
   return new Intl.DateTimeFormat(locale === "tr" ? "tr-TR" : "en-US", {
@@ -40,11 +43,137 @@ function downloadTextFile(content, fileName) {
   URL.revokeObjectURL(url);
 }
 
+function makeReviewCacheKey(documentId) {
+  return `braillevision-review:${documentId}`;
+}
+
+function normalizeReviewBlock(block, index, pageNumber = 1, parentId = "") {
+  const originalText =
+    block?.originalText ??
+    block?.originalContent ??
+    block?.normalizedContent ??
+    block?.content ??
+    block?.text ??
+    "";
+  const brailleText =
+    block?.brailleText ??
+    block?.brailleContent ??
+    block?.braille ??
+    "";
+  const fallbackId = parentId
+    ? `${parentId}-child-${index}`
+    : `page-${pageNumber}-block-${index}`;
+  const children = Array.isArray(block?.children)
+    ? block.children.map((child, childIndex) => normalizeReviewBlock(child, childIndex, pageNumber, block?.id || fallbackId))
+    : [];
+
+  return {
+    ...block,
+    id: block?.id || fallbackId,
+    originalText,
+    originalContent: block?.originalContent ?? originalText,
+    normalizedContent: block?.normalizedContent ?? originalText,
+    brailleText,
+    brailleContent: block?.brailleContent ?? brailleText,
+    children,
+  };
+}
+
+function normalizeReviewBlocks(rawBlocks, pageNumber = 1) {
+  return (Array.isArray(rawBlocks) ? rawBlocks : [])
+    .map((block, index) => normalizeReviewBlock(block, index, pageNumber))
+    .filter((block) =>
+      block.originalText ||
+      block.brailleText ||
+      block.originalContent ||
+      block.brailleContent ||
+      block.content ||
+      block.text ||
+      block.children?.length,
+    );
+}
+
+function prepareReviewDocument(documentRecord) {
+  const reviewPages = buildReviewPagesFromDocument(documentRecord).map((page) => {
+    const originalBlocks = segmentPlainTextPage(page.originalText, page.pageNumber);
+    const blocks = normalizeReviewBlocks(
+      alignBrailleTextToOriginalBlocks(originalBlocks, page.brailleText),
+      page.pageNumber,
+    );
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("Review raw blocks:", originalBlocks);
+      console.log("Review normalized blocks:", blocks);
+    }
+
+    return {
+      ...page,
+      blocks,
+    };
+  });
+
+  return {
+    documentRecord,
+    reviewPages,
+  };
+}
+
+function readCachedReview(documentId) {
+  if (!documentId) {
+    return null;
+  }
+
+  const memoryValue = reviewDocumentCache.get(documentId);
+  if (memoryValue) {
+    return memoryValue;
+  }
+
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(makeReviewCacheKey(documentId));
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed?.documentRecord || !Array.isArray(parsed?.reviewPages)) {
+      return null;
+    }
+
+    reviewDocumentCache.set(documentId, parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedReview(documentId, value) {
+  if (!documentId || !value) {
+    return;
+  }
+
+  reviewDocumentCache.set(documentId, value);
+
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(makeReviewCacheKey(documentId), JSON.stringify(value));
+  } catch {
+    // Ignore storage quota and serialization issues; in-memory cache still helps.
+  }
+}
+
 export function ConversionReviewReader() {
   const searchParams = useSearchParams();
   const { supabase, user } = useAuth();
   const { t, locale } = useI18n();
   const [documentRecord, setDocumentRecord] = useState(null);
+  const [preparedReview, setPreparedReview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [actionMessage, setActionMessage] = useState("");
@@ -59,12 +188,24 @@ export function ConversionReviewReader() {
 
     async function loadDocument() {
       if (!documentId || !supabase || !user) {
+        setDocumentRecord(null);
+        setPreparedReview(null);
+        setLoading(false);
+        return;
+      }
+
+      const cachedReview = readCachedReview(documentId);
+      if (cachedReview) {
+        setDocumentRecord(cachedReview.documentRecord);
+        setPreparedReview(cachedReview);
         setLoading(false);
         return;
       }
 
       setLoading(true);
       setErrorMessage("");
+      setDocumentRecord(null);
+      setPreparedReview(null);
 
       const { data, error } = await supabase
         .from("documents")
@@ -79,12 +220,16 @@ export function ConversionReviewReader() {
 
       if (error) {
         setDocumentRecord(null);
+        setPreparedReview(null);
         setErrorMessage(getFriendlyDocumentMessage(error, t("review.loadFailed")));
         setLoading(false);
         return;
       }
 
+      const nextPreparedReview = prepareReviewDocument(data);
+      writeCachedReview(documentId, nextPreparedReview);
       setDocumentRecord(data);
+      setPreparedReview(nextPreparedReview);
       setLoading(false);
     }
 
@@ -96,8 +241,8 @@ export function ConversionReviewReader() {
   }, [documentId, supabase, t, user]);
 
   const reviewPages = useMemo(
-    () => (documentRecord ? buildReviewPagesFromDocument(documentRecord) : []),
-    [documentRecord],
+    () => preparedReview?.reviewPages || [],
+    [preparedReview],
   );
 
   useEffect(() => {
@@ -120,7 +265,6 @@ export function ConversionReviewReader() {
   const canOpenReader = documentRecord
     ? isReaderRecommended({ sourceType: documentRecord.source_type, originalText: documentRecord.original_text })
     : false;
-  const comparisonMode = documentRecord?.source_type === "pdf" ? "line_preserved" : currentPage?.structureMode;
   const comparisonNotes = useMemo(
     () => [
       t("review.noteAlignedRows"),
@@ -129,6 +273,29 @@ export function ConversionReviewReader() {
     ],
     [t],
   );
+
+  const blocks = useMemo(() => {
+    if (!currentPage) {
+      return [];
+    }
+
+    const rawBlocks =
+      currentPage.blocks ||
+      currentPage.brailleBlocks ||
+      currentPage.originalBlocks ||
+      currentPage.reviewBlocks ||
+      currentPage.alignedBlocks ||
+      currentPage.pageBlocks ||
+      [];
+    const normalizedBlocks = normalizeReviewBlocks(rawBlocks, currentPage.pageNumber);
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("Review raw blocks:", rawBlocks);
+      console.log("Review normalized blocks:", normalizedBlocks);
+    }
+
+    return normalizedBlocks;
+  }, [currentPage]);
   const baseFileName = useMemo(
     () => sanitizeFileToken(documentRecord?.file_name?.replace(/\.[^/.]+$/, "")) || "braille-review",
     [documentRecord?.file_name],
@@ -394,16 +561,12 @@ export function ConversionReviewReader() {
                   </div>
                 </div>
 
-                <AlignedBrailleComparison
-                  originalText={currentPage.originalText}
-                  brailleText={currentPage.brailleText}
+                <BlockAlignedComparison
+                  blocks={blocks}
                   originalLabel={t("review.originalPage")}
                   brailleLabel={t("review.braillePage")}
                   notesTitle={t("review.notesTitle")}
                   notes={comparisonNotes}
-                  wordsPerRow={10}
-                  interactive
-                  mode={comparisonMode}
                 />
 
                 <div className="surface-card rounded-2xl p-5 md:p-6">

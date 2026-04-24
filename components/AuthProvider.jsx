@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { getProfileRecord, normalizeProfilePreferences, upsertProfileRecord } from "@/lib/profiles";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+import { isInvalidRefreshTokenError } from "@/lib/userMessages";
 
 const INITIAL_SESSION_TIMEOUT_MS = 3000;
 
@@ -94,6 +95,11 @@ export function AuthProvider({ children }) {
             window.setTimeout(() => resolve({ data: { session: null }, timedOut: true }), INITIAL_SESSION_TIMEOUT_MS);
           }),
         ]);
+
+        if (!initialSessionResult?.timedOut && isInvalidRefreshTokenError(initialSessionResult?.error)) {
+          console.warn("Clearing an invalid stored Supabase session.");
+          await client.auth.signOut({ scope: "local" });
+        }
 
         const initialSession = initialSessionResult?.data?.session ?? null;
 

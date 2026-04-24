@@ -1,253 +1,206 @@
-# Braille Vision Dashboard
+# BrailleVision
 
-This repository now includes a Next.js dashboard that uses Supabase Auth and Database to save Braille conversions.
+## Project overview
 
-Core product foundations now included:
+BrailleVision is a Next.js dashboard (with Supabase Auth/DB) plus a small Python API that together convert documents (manual text, PDFs, images/camera) into Braille.
 
-- `profiles` table for display name, role, and workspace preferences
-- richer `documents` metadata for source type, conversion mode, favorite state, and archive state
-- bulk document management in the dashboard
-- OCR support for images and camera input
-- Word add-in history sync into the dashboard
+The current pipeline is **block-based**: pages are segmented into ordered semantic-ish blocks (e.g. headings, paragraphs, equation groups, side notes) before translation, and the UI renders **block-aligned** Original vs Braille.
 
-## Dashboard setup
+## Problem statement
 
-1. Install dependencies:
+Flat OCR/text dumps lose page structure (reading order, side notes, math grouping). This project aims to preserve enough layout to:
+
+- reconstruct a reasonable reading order,
+- separate sidebars/notes from main flow,
+- group multi-line math derivations,
+- present an accessible, reviewable Original ↔ Braille alignment.
+
+## Current architecture
+
+- **Frontend**: Next.js app + dashboard UI, Supabase Auth + Database.
+- **PDF extraction (client-side)**: PDF.js text layer is converted into **layout lines with bounding boxes**.
+- **Image OCR / Vision**: image text extraction goes through the JS client helper and the Python API.
+- **Segmentation**: layout lines → ordered blocks (`pageBlocks`) using bbox heuristics.
+- **Translation**:
+  - regular text blocks can be sent to the Python API,
+  - math-like blocks (`equation_group`) use the local JS Braille conversion.
+
+## Pipeline overview
+
+At a high level:
+
+1. Input chosen in UI (`manual` / `pdf` / `image` / `camera`).
+2. Extraction:
+   - PDF: text layer → `pageLayouts` (bbox lines) + repaired page text
+   - Image/camera: OCR via `lib/extractImageText.js`
+3. Processing: `processDocumentInput(...)` produces:
+   - `pages` (page texts)
+   - `pageBlocks` (per-page blocks from `pageLayouts` or plain text)
+4. Translation: per-block conversion, then joined for storage.
+5. Review: block-aligned UI for Original vs Braille.
+
+## Key modules/files
+
+- Block IR (types/helpers): `lib/pageBlocks.js`
+- Block segmentation + reading order: `lib/pageSegmentation.js`
+- PDF layout reconstruction (bbox lines): `lib/pdfTextLayout.js`
+- PDF extraction (returns `pageLayouts`): `lib/extractPdfText.js`
+- Processing entrypoint (produces `pageBlocks`): `lib/documentProcessing.js`
+- Conversion UI entrypoint: `components/UploadPanel.jsx`
+- Block-aligned comparison UI: `components/BlockAlignedComparison.jsx`
+- Review reader uses block-alignment: `components/dashboard/ConversionReviewReader.jsx`
+- Python API server: `app.py`
+
+## How to run the frontend
 
 ```bash
 npm install
-```
-
-2. Create a local environment file:
-
-```bash
-cp .env.local.example .env.local
-```
-
-3. Add your Supabase project values to `.env.local`:
-
-```bash
-NEXT_PUBLIC_SUPABASE_URL=your-project-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-```
-
-4. Run the SQL in `supabase/documents.sql` inside the Supabase SQL editor.
-   This step now creates both `profiles` and the expanded `documents` schema, so re-run it after pulling the latest changes.
-
-5. Start the dashboard:
-
-```bash
 npm run dev
 ```
 
-The app runs at `http://localhost:3000`.
+Open `http://localhost:3000`.
 
-## Word add-in with the new UI
+## How to run the backend
 
-Run the three services below together when testing the Word extension:
-
-1. Next.js UI on port `3001`:
+The Python API runs on port `8000`.
 
 ```bash
-npm run dev:addin
-```
-
-2. Python backend on port `8000`:
-
-```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 python3 app.py
 ```
 
-3. Word HTTPS gateway on port `3000`:
+Open `http://localhost:8000`.
 
-```bash
-cd word-addin
-npm install
-npm start
-```
+## Environment variables
 
-The Word manifest still uses the same sideload flow, but it now opens `https://localhost:3000/word`, which proxies the UI from Next.js and the API calls from the Python backend.
-
-## Existing Python translator
-
-The original Python translator is still available:
-
-```bash
-python3 main.py
-```
-
-## Python tests
-
-```bash
-python3 -m unittest -v test_pipeline.py
-```
-<<<<<<< Updated upstream
-=======
-
-## Full project runbook
-
-Use this section when you want the dashboard, Python translator backend, and the Word extension to work together with the latest UI.
-
-### 1. Install project dependencies
-
-```bash
-cd /Users/durukula/Documents/GitHub/BrailleVision
-npm install
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-### 2. Make sure Supabase is configured
-
-Create `.env.local` if it does not exist yet:
+Create `.env.local` for the Next.js app:
 
 ```bash
 cp .env.local.example .env.local
 ```
 
-Then fill in:
+Minimum required (dashboard auth/db):
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=your-project-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+Optional (enables higher-quality vision mode where available):
+
+```env
 GEMINI_API_KEY=your-gemini-api-key
 ```
 
-`GEMINI_API_KEY` is optional for the rest of the app, but it enables the higher-quality `AI Vision` mode in Graph Reader. Without it, Graph Reader falls back to `Offline Basic`.
+Also run the schema in Supabase:
 
-Re-run the SQL after the latest schema changes:
+- `supabase/documents.sql`
 
-```text
-Open supabase/documents.sql in the Supabase SQL Editor and run it again.
-```
+## How PDF processing works now
 
-### 3. Start the dashboard only
+PDF extraction is **layout-first**:
 
-If you only want the web dashboard:
+- `extractPdfContent(file)` in `lib/extractPdfText.js` uses PDF.js text items and returns:
+  - `text`: full extracted text
+  - `pages`: per-page text
+  - `pageLayouts`: per-page `{ pageNumber, width, height, lines, source }`
 
-```bash
-cd /Users/durukula/Documents/GitHub/BrailleVision
-npm run dev
-```
+Each `pageLayouts[n].lines` entry comes from `reconstructPdfPageLines(...)` in `lib/pdfTextLayout.js` and has:
 
-Open:
+- `text`: reconstructed line text
+- `kind`: `text` / `math` / `empty`
+- `bbox`: `{ x0, y0, x1, y1, space: "pdf" }`
 
-```text
-http://localhost:3000
-```
+This `pageLayouts` payload is what drives bbox-based ordering and segmentation.
 
-### 4. Start the full stack with Word extension
+## How block-based page segmentation works
 
-You need 3 terminals.
+Segmentation lives in `lib/pageSegmentation.js`:
 
-Terminal 1: Next UI for the Word add-in
+- **Reading order**: `sortLayoutLinesByReadingOrder(lines)` sorts by y (top→bottom) then x (left→right) using bbox.
+- **Region detection**: lightweight heuristics split **main flow** vs **sidebars** using bbox width, main-column band detection, and side anchoring.
+- **Block building**: lines are grouped into blocks by gaps/indentation + content heuristics.
+- **Mixed-content ordering**: final block order is re-sorted across detected regions so margin notes can appear near the relevant main-flow blocks instead of always being appended as one large sidebar chunk.
 
-```bash
-cd /Users/durukula/Documents/GitHub/BrailleVision
-npm run dev:addin
-```
+### Block types
 
-This serves the modern add-in UI at:
+Defined in `PAGE_BLOCK_TYPES` (`lib/pageBlocks.js`). Key ones used today:
 
-```text
-http://localhost:3001/word
-```
+- `chapter_header`, `section_header`
+- `paragraph`
+- `equation_group` (with child `equation_step` blocks)
+- `sidebar_note`
+- `graph_placeholder`, `table_placeholder` (caption-driven placeholders)
+- `figure_caption` (stored as a child on placeholders)
 
-Terminal 2: Python translator backend
+### Equation grouping (`equation_group`)
 
-```bash
-cd /Users/durukula/Documents/GitHub/BrailleVision
-source .venv/bin/activate
-python app.py
-```
+- Multi-line derivations are grouped into a single `equation_group`.
+- Each original line becomes a child block of type `equation_step`.
+- The segmenter includes a safeguard to avoid absorbing surrounding prose lines into an equation group.
+- Narrow centered equations are kept in the main flow instead of being treated as margin notes.
 
-This serves the translation backend at:
+### Sidebar / graph / table behavior
 
-```text
-http://localhost:8000
-```
+- Sidebar-ish lines are separated into `sidebar_note` blocks when detected.
+- `Figure ...` / `Table ...` caption-like lines create **placeholder blocks**:
+  - `graph_placeholder` or `table_placeholder`
+  - with a child `figure_caption` containing the caption text
+- Caption lines are forced to start their own block so they do not get absorbed into surrounding prose or math runs.
 
-Terminal 3: Word HTTPS gateway
+These placeholders do **not** imply real graph/table understanding yet; they are used to preserve structure and reading flow.
 
-```bash
-cd /Users/durukula/Documents/GitHub/BrailleVision/word-addin
-npm install
-npm start
-```
+## Developer debug inspection
 
-This serves the sideloaded Word add-in host at:
+During local development, PDF conversions now expose a **page segmentation inspector** in the upload flow:
 
-```text
-https://localhost:3000/word
-```
+- page-by-page view of ordered `pageLayouts` lines
+- detected `pageBlocks` with order, type, bbox, confidence, and original content
+- a lightweight bbox mini-map showing line and block boundaries
+- browser-console payload at `window.__BRAILLEVISION_SEGMENTATION_DEBUG__`
 
-### 5. Re-copy the Word manifest after updates
+This is intended for tuning a small set of representative textbook pages for demo quality, not as a new persistent architecture layer.
 
-If the manifest changed, copy it again:
+## How translation / Braille flow works
 
-```bash
-mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef
-cp /Users/durukula/Documents/GitHub/BrailleVision/word-addin/manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
-```
+The conversion UI (`components/UploadPanel.jsx`) translates **per block** when `pageBlocks` are available:
 
-Then fully close and reopen Microsoft Word.
+- For `equation_group` blocks: uses the local JS converter (`lib/convertToBraille.js`).
+- For text blocks:
+  - in `text` mode: calls the Python API via `lib/translateBrailleText.js`
+  - otherwise falls back to the local converter.
 
-### 6. Sign in before using history sync
+The UI then joins translated blocks using blank lines so the stored `original_text` / `braille_text` remain compatible with older consumers.
 
-If you want Word extension conversions to appear in the dashboard history:
+## Tests
 
-1. Open `https://localhost:3000/login`
-2. Sign in with the same Supabase user you use in the dashboard
-3. Open the Word add-in and run conversions
-
-The add-in will then save records into the same `documents` table.
-
-### 7. Important port rules
-
-- `3000` is reserved for the Word HTTPS gateway when testing the extension
-- `3001` is reserved for the new Next.js add-in UI
-- `8000` is reserved for the Python backend
-
-Do not run `npm run dev` on `3000` at the same time as `word-addin/npm start`.
-
-### 8. Typical daily startup sequence
-
-If you want everything running:
+These commands are known to pass in the current state:
 
 ```bash
-# Terminal 1
-cd /Users/durukula/Documents/GitHub/BrailleVision
-npm run dev:addin
+node --test tests/pageSegmentation.test.mjs
 ```
 
 ```bash
-# Terminal 2
-cd /Users/durukula/Documents/GitHub/BrailleVision
-source .venv/bin/activate
-python app.py
+npm run test:pdf-layout
 ```
+
+Python tests are also available:
 
 ```bash
-# Terminal 3
-cd /Users/durukula/Documents/GitHub/BrailleVision/word-addin
-npm start
+python3 -m unittest -v test_pipeline.py
 ```
 
-Then:
+## Known limitations
 
-1. Open `https://localhost:3000/login`
-2. Sign in
-3. Open Microsoft Word
-4. Launch the Braille Vision add-in
+- Block segmentation is heuristic; complex multi-column textbooks and nested boxes will still fail in edge cases.
+- Graph/table handling is currently **placeholder-based** (caption detection), not full semantic understanding.
+- Blocks are not yet stored as first-class JSON in the database; review currently re-segments stored text for display.
 
-### 9. Quick troubleshooting
+## Next planned improvements
 
-- If dashboard actions fail:
-  Re-run `supabase/documents.sql`
-- If `fastapi` is missing:
-  Use `.venv` and run `python -m pip install -r requirements.txt`
-- If `https://localhost:3000` does not open:
-  Make sure `word-addin/npm start` is running and port `3000` is free
-- If Word add-in opens but translation fails:
-  Make sure `python app.py` is running on `8000`
->>>>>>> Stashed changes
+- Persist `pageBlocks` (and bbox) in storage so review doesn’t need to re-segment.
+- Stronger multi-column reading order and boxed-structure detection.
+- Improve math reconstruction and block-specific translation strategies.
+- Expand segmentation test fixtures to cover more real-world layouts.
