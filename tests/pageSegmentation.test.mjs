@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { inspectPageSegmentation, segmentPlainTextPage } from "../lib/pageSegmentation.js";
+import {
+  inspectPageSegmentation,
+  normalizeNthRoots,
+  normalizeRootRadicands,
+  segmentPlainTextPage,
+} from "../lib/pageSegmentation.js";
 import { segmentPageIntoBlocks, sortLayoutLinesByReadingOrder } from "../lib/pageSegmentation.js";
 
 test("segments headings and paragraphs into separate blocks", () => {
@@ -120,6 +125,67 @@ test("example blocks keep nearby prose and math together when the flow has not r
   assert.match(blocks[0].originalContent, /Then cancel the common factor/);
 });
 
+test("example parsing keeps prompt and inline-labeled items inside one structured example block", () => {
+  const pageText = [
+    "EXAMPLE 5 Use the observations limxSc k = k and limxSc x = c (Example 3) and",
+    "the fundamental rules of limits to find the following limits.",
+    "(a) lim",
+    "xSc",
+    "(x3 + 4x2 - 3) (b) lim",
+    "xSc",
+    "(x4 + x2 - 1)/(x2 + 5)",
+    "(c) limxS-2",
+    "√4x2 - 3",
+  ].join("\n");
+
+  const blocks = segmentPlainTextPage(pageText, 1);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].type, "example");
+  assert.equal(blocks[0].number, "5");
+
+  const children = blocks[0].children || [];
+  const promptChildren = children.filter((child) => child.type === "example_prompt");
+  assert.equal(promptChildren.length, 1);
+  assert.equal(children[0]?.type, "example_prompt");
+  assert.match(promptChildren[0]?.text || "", /Use the observations/u);
+  assert.match(promptChildren[0]?.text || "", /the fundamental rules of limits/u);
+  const items = children.filter((child) => child.type === "example_item");
+  assert.equal(items.length, 3);
+  assert.equal(items[0]?.label, "(a)");
+  assert.match(items[0]?.text || "", /lim x→c \(x3 \+ 4x2 - 3\)/u);
+  assert.equal(items[1]?.label, "(b)");
+  assert.match(items[1]?.text || "", /lim x→c \(x4 \+ x2 - 1\)\/\(x2 \+ 5\)/u);
+  assert.equal(items[2]?.label, "(c)");
+  assert.match(items[2]?.text || "", /lim x→-2 √\(4x2 - 3\)|lim x→-2 √\(4x\^2 - 3\)/u);
+  assert.match(items[2]?.content || "", /\(c\) lim x→-2 √\(4x2 - 3\)|\(c\) lim x→-2 √\(4x\^2 - 3\)/u);
+  assert.match(items[2]?.originalText || "", /\(c\) lim x→-2 √\(4x2 - 3\)|\(c\) lim x→-2 √\(4x\^2 - 3\)/u);
+  assert.match(items[2]?.normalizedContent || "", /\(c\) lim x→-2 √\(4x2 - 3\)|\(c\) lim x→-2 √\(4x\^2 - 3\)/u);
+  assert.doesNotMatch(items[2]?.text || "", /√4x\^?2 - 3 x→-2/u);
+  assert.doesNotMatch(items[2]?.content || "", /√4x\^?2 - 3 x→-2/u);
+  assert.doesNotMatch(items[2]?.originalText || "", /√4x\^?2 - 3 x→-2/u);
+  assert.doesNotMatch(items[2]?.normalizedContent || "", /√4x\^?2 - 3 x→-2/u);
+  assert.doesNotMatch(items[0]?.text || "", /\(b\)/u);
+  assert.doesNotMatch(items[1]?.text || "", /\(c\)/u);
+  assert.ok(!blocks.some((block) => ["lim", "xSc", "(x3 + 4x2 - 3)"].includes(block.originalContent)));
+});
+
+test("normalizeRootRadicands wraps simple square-root radicands with trailing +/- terms", () => {
+  assert.equal(normalizeRootRadicands("lim x→-2 √4x^2 - 3"), "lim x→-2 √(4x^2 - 3)");
+  assert.equal(normalizeRootRadicands("lim x→c √x"), "lim x→c √x");
+  assert.equal(normalizeRootRadicands("lim x→c √(x^2 + 1)"), "lim x→c √(x^2 + 1)");
+});
+
+test("normalizeNthRoots converts explicit root indexes without changing ordinary square roots", () => {
+  assert.equal(
+    normalizeNthRoots("lim x→c √ n f(x) = √ n L = L^(1/n)"),
+    "lim x→c ⁿ√f(x) = ⁿ√L = L^(1/n)",
+  );
+  assert.equal(normalizeNthRoots("√n f(x)"), "ⁿ√f(x)");
+  assert.equal(normalizeNthRoots("√nL"), "ⁿ√L");
+  assert.equal(normalizeNthRoots("lim x→-2 √(4x^2 - 3)"), "lim x→-2 √(4x^2 - 3)");
+  assert.equal(normalizeNthRoots("lim x→c √x"), "lim x→c √x");
+});
+
 test("theorem blocks preserve theorem intro, equation groups, and numbered rule items as children", () => {
   const layoutLines = [
     { text: "Theorem 2.6 Limit Laws", bbox: { x0: 80, y0: 760, x1: 280, y1: 774, space: "pdf" } },
@@ -232,6 +298,42 @@ test("theorem parsing splits inline first rule markers out of theorem equations"
   assert.equal(ruleList.children?.[1]?.title, "Difference Rule");
   assert.equal(ruleList.children?.[2]?.number, "3");
   assert.equal(ruleList.children?.[2]?.title, "Constant Multiple Rule");
+});
+
+test("theorem parsing keeps root-rule notes separate and preserves lim x→c ordering in structured math", () => {
+  const pageText = [
+    "THEOREM 1—Limit Laws If L, M, c, and k are real numbers and",
+    "lim",
+    "xSc",
+    "f(x) = L and lim",
+    "xSc",
+    "g(x) = M, then",
+    "7. Root Rule: lim",
+    "xSc",
+    "√n f(x) = √n L = L^(1/n), n a positive integer",
+    "(If n is even, we assume that lim",
+    "xSc",
+    "f(x) = L > 0.)",
+  ].join("\n");
+
+  const blocks = segmentPlainTextPage(pageText, 1);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].type, "theorem");
+
+  const ruleList = blocks[0].children?.find((child) => child.type === "rule_list");
+  assert.ok(ruleList);
+  const ruleSeven = ruleList.children?.find((child) => child.number === "7");
+  assert.ok(ruleSeven);
+  assert.match(ruleSeven.text || "", /lim x→c/u);
+  assert.match(ruleSeven.text || "", /ⁿ√f\(x\) = ⁿ√L = L\^\(1\/n\)/u);
+  assert.doesNotMatch(ruleSeven.text || "", /\(If n is even/u);
+  assert.doesNotMatch(ruleSeven.content || "", /\(If n is even/u);
+  assert.doesNotMatch(ruleSeven.originalText || "", /\(If n is even/u);
+  assert.doesNotMatch(ruleSeven.normalizedContent || "", /\(If n is even/u);
+
+  const theoremNote = blocks[0].children?.find((child) => child.type === "theorem_note");
+  assert.ok(theoremNote);
+  assert.match(theoremNote.text || "", /lim x→c f\(x\) = L > 0/u);
 });
 
 test("sortLayoutLinesByReadingOrder sorts top-to-bottom then left-to-right", () => {

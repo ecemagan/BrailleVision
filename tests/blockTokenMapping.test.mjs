@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   createAlignedTokenMapping,
   decorateInteractiveTokens,
+  tokenizeForHighlight,
 } from "../lib/blockTokenMapping.js";
 
 test("createAlignedTokenMapping pairs word-like tokens by shared index and preserves whitespace", () => {
@@ -114,4 +115,24 @@ test("hovering one braille token does not target all original tokens in the same
 
   assert.equal(matchedOriginalTokens.length, 1);
   assert.equal(matchedOriginalTokens[0].tokenIndex, 2);
+});
+
+test("tokenizeForHighlight splits dense math expressions into symbol-level tokens", () => {
+  const tokens = tokenizeForHighlight("1)/(x^2", { isMath: true }).map((token) => token.value);
+
+  assert.deepEqual(tokens, ["1", ")", "/", "(", "x", "^", "2"]);
+});
+
+test("tokenizeForHighlight preserves root and operators as separate math tokens", () => {
+  const tokens = tokenizeForHighlight("√(4x^2 - 3)", { isMath: true })
+    .map((token) => token.value)
+    .filter((token) => token.trim());
+
+  assert.deepEqual(tokens, ["√", "(", "4", "x", "^", "2", "-", "3", ")"]);
+});
+
+test("tokenizeForHighlight breaks quotient and exponent syntax into interactive math tokens", () => {
+  const tokens = tokenizeForHighlight("L^(1/n)", { isMath: true }).map((token) => token.value);
+
+  assert.deepEqual(tokens, ["L", "^", "(", "1", "/", "n", ")"]);
 });

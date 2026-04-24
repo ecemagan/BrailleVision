@@ -88,6 +88,19 @@ function normalizeDisplayText(text) {
   return String(text || "").replace(/(\p{L})-\s+(\p{L})/gu, "$1$2");
 }
 
+function shouldUseMathAwareTokenization(type, originalText, brailleText) {
+  if (
+    type === PAGE_BLOCK_TYPES.EQUATION_GROUP ||
+    type === PAGE_BLOCK_TYPES.RULE_ITEM ||
+    type === "example_item" ||
+    type === "equation_step"
+  ) {
+    return true;
+  }
+
+  return /lim|√|∫|∑|→|=|\^|\/|\+|-/u.test(`${originalText || ""} ${brailleText || ""}`);
+}
+
 function buildInteractiveTokens(alignment, side, blockId, segmentId) {
   const tokens = side === "original" ? alignment.originalTokens : alignment.brailleTokens;
   return decorateInteractiveTokens(tokens, {
@@ -208,6 +221,13 @@ function SegmentPanel({
     const fallbackAlignment = createAlignedTokenMapping(
       normalizeDisplayText(segment?.original),
       normalizeDisplayText(segment?.braille),
+      {
+        isMath: shouldUseMathAwareTokenization(
+          segment?.type,
+          normalizeDisplayText(segment?.original),
+          normalizeDisplayText(segment?.braille),
+        ),
+      },
     );
     const fallbackTokens = buildInteractiveTokens(fallbackAlignment, side, blockId, segment?.id || "theorem-fallback");
 
@@ -262,6 +282,13 @@ function SegmentPanel({
                       const alignment = createAlignedTokenMapping(
                         normalizeDisplayText(line.original),
                         normalizeDisplayText(line.braille),
+                        {
+                          isMath: shouldUseMathAwareTokenization(
+                            child.type,
+                            normalizeDisplayText(line.original),
+                            normalizeDisplayText(line.braille),
+                          ),
+                        },
                       );
                       const tokens = buildInteractiveTokens(alignment, side, blockId, line.id);
 
@@ -290,6 +317,13 @@ function SegmentPanel({
             const alignment = createAlignedTokenMapping(
               normalizeDisplayText(child.original),
               normalizeDisplayText(child.braille),
+              {
+                isMath: shouldUseMathAwareTokenization(
+                  child.type,
+                  normalizeDisplayText(child.original),
+                  normalizeDisplayText(child.braille),
+                ),
+              },
             );
             const tokens = buildInteractiveTokens(alignment, side, blockId, child.id);
 
@@ -345,7 +379,17 @@ function SegmentPanel({
 
         <div className="space-y-1.5 overflow-x-auto">
           {lineItems.map((line) => {
-            const alignment = createAlignedTokenMapping(normalizeDisplayText(line.original), normalizeDisplayText(line.braille));
+            const alignment = createAlignedTokenMapping(
+              normalizeDisplayText(line.original),
+              normalizeDisplayText(line.braille),
+              {
+                isMath: shouldUseMathAwareTokenization(
+                  PAGE_BLOCK_TYPES.EQUATION_GROUP,
+                  normalizeDisplayText(line.original),
+                  normalizeDisplayText(line.braille),
+                ),
+              },
+            );
             const tokens = buildInteractiveTokens(alignment, side, blockId, line.id);
             const tone = "braille";
 
@@ -380,7 +424,17 @@ function SegmentPanel({
   return (
     <div className="space-y-3">
       {segments.map((segment) => {
-        const alignment = createAlignedTokenMapping(normalizeDisplayText(segment.original), normalizeDisplayText(segment.braille));
+        const alignment = createAlignedTokenMapping(
+          normalizeDisplayText(segment.original),
+          normalizeDisplayText(segment.braille),
+          {
+            isMath: shouldUseMathAwareTokenization(
+              segment.type,
+              normalizeDisplayText(segment.original),
+              normalizeDisplayText(segment.braille),
+            ),
+          },
+        );
         const tokens = buildInteractiveTokens(alignment, side, blockId, segment.id);
         const tone = side === "original" ? "original" : "braille";
 
