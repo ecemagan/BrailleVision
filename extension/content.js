@@ -53,7 +53,7 @@ async function showMathPopup(text) {
                     <div class="bv-label">Nemeth Braille:</div>
                     <div class="bv-braille">${res.braille}</div>
                     <div style="text-align:right; margin-top:8px;">
-                        <button class="bv-export-btn" id="export-btn-${index}">📥 Download (.txt)</button>
+                        <button class="bv-export-btn" id="export-btn-${index}">📥 Download (.brf)</button>
                     </div>
                 `;
             }
@@ -73,10 +73,10 @@ async function showMathPopup(text) {
                 const exportBtn = document.getElementById(`export-btn-${index}`);
                 if (exportBtn) {
                     exportBtn.addEventListener('click', () => {
-                        const content = `Mathematical Expression:\n${res.expression}\n\nNemeth Braille Translation:\n${res.braille}\n`;
-                        downloadTxt(content, 'BrailleVision_Math.txt');
+                        downloadBRF(res.braille, 'BrailleVision_Math.brf');
                     });
                 }
+
             }
         });
 
@@ -113,14 +113,14 @@ async function showAlphaPopup(text) {
             <div class="bv-label">Braille translation:</div>
             <div class="bv-braille">${data.braille}</div>
             <div style="text-align:right; margin-top:8px;">
-                <button class="bv-export-btn" id="alpha-export-btn">📥 Download (.txt)</button>
+                <button class="bv-export-btn" id="alpha-export-btn">📥 Download (.brf)</button>
             </div>
         `;
 
         document.getElementById("alpha-export-btn").addEventListener('click', () => {
-            const content = `Original Text:\n${data.original}\n\nBraille Translation:\n${data.braille}\n`;
-            downloadTxt(content, 'BrailleVision_Alphabet.txt');
+            downloadBRF(data.braille, 'BrailleVision_Alphabet.brf');
         });
+
 
     } catch (err) {
         popup.querySelector('.bv-content').innerHTML =
@@ -144,8 +144,51 @@ function createBasePopup(title) {
     return popup;
 }
 
-function downloadTxt(content, filename) {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+// ─── BRF export (Braille Ready Format – NABCC, 40 cells/line, 25 lines/page)
+function downloadBRF(brailleUnicode, filename) {
+    const UNICODE_TO_NABCC = {
+        '\u2800': ' ',
+        '\u2801': 'a', '\u2802': '1', '\u2803': 'b', '\u2804': "'", '\u2805': 'k',
+        '\u2806': '2', '\u2807': 'l', '\u2808': '@', '\u2809': 'c', '\u280a': 'i',
+        '\u280b': 'f', '\u280c': '/', '\u280d': 'm', '\u280e': 's', '\u280f': 'p',
+        '\u2810': '"', '\u2811': 'e', '\u2812': '3', '\u2813': 'h', '\u2814': '9',
+        '\u2815': 'o', '\u2816': '6', '\u2817': 'r', '\u2818': '^', '\u2819': 'd',
+        '\u281a': 'j', '\u281b': 'g', '\u281c': '>', '\u281d': 'n', '\u281e': 't',
+        '\u281f': 'q', '\u2820': ',', '\u2821': '*', '\u2822': '5', '\u2823': '<',
+        '\u2824': '-', '\u2825': 'u', '\u2826': '8', '\u2827': 'v', '\u2828': '.',
+        '\u2829': '%', '\u282a': '[', '\u282b': '$', '\u282c': '+', '\u282d': 'x',
+        '\u282e': '!', '\u282f': '&', '\u2830': ';', '\u2831': ':', '\u2832': '4',
+        '\u2833': '\\','\u2834': '0', '\u2835': 'z', '\u2836': '7', '\u2837': '(',
+        '\u2838': '_', '\u2839': '?', '\u283a': 'w', '\u283b': ']', '\u283c': '#',
+        '\u283d': 'y', '\u283e': ')', '\u283f': '=',
+    };
+
+    let ascii = '';
+    for (const ch of brailleUnicode) {
+        if (ch === '\n') { ascii += '\n'; continue; }
+        if (ch === ' ')  { ascii += ' ';  continue; }
+        ascii += UNICODE_TO_NABCC[ch] ?? ch;
+    }
+
+    const CELLS_PER_LINE = 40;
+    const LINES_PER_PAGE = 25;
+    const inputLines = ascii.split('\n');
+    const wrapped = [];
+    
+    for (const line of inputLines) {
+        if (line.length === 0) { wrapped.push(''); continue; }
+        for (let i = 0; i < line.length; i += CELLS_PER_LINE) {
+            wrapped.push(line.slice(i, i + CELLS_PER_LINE));
+        }
+    }
+
+    const pages = [];
+    for (let i = 0; i < wrapped.length; i += LINES_PER_PAGE) {
+        pages.push(wrapped.slice(i, i + LINES_PER_PAGE).join('\n'));
+    }
+    const brf = pages.join('\n\f\n');
+
+    const blob = new Blob([brf], { type: 'application/x-brf;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
