@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 import google.generativeai as genai
 import unicodedata
+import fitz  # PyMuPDF
 
 # Setup paths for braillevision
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -46,7 +47,7 @@ from braillevision.parser import Parser
 from braillevision.text_braille_translator import TextBrailleTranslator
 
 # Set Gemini API key (opsiyonel – yoksa metin çevirisi yerel mapping ile çalışır)
-_GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+_GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAd8s0nIilvzk9BVZ296YRhynsvJyQdfNs").strip()
 _GEMINI_AVAILABLE = bool(_GEMINI_API_KEY)
 if _GEMINI_AVAILABLE:
     genai.configure(api_key=_GEMINI_API_KEY)
@@ -66,6 +67,66 @@ _SUPERSCRIPTS = {
     '⁰':'0','¹':'1','²':'2','³':'3','⁴':'4',
     '⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9',
 }
+
+def fix_latex_encoding(text: str) -> str:
+    """
+    Deterministic post-processor: Fixes broken LaTeX PDF font encoding.
+    LaTeX PDFs often store Turkish chars as diacritic + base letter (two glyphs),
+    and special symbols like the florin \u0192 as the function f.
+    This runs AFTER Gemini OCR and guarantees correctness.
+    """
+    import unicodedata as _ud
+
+    # \u2500\u2500 Special symbol replacements \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    # \u0192 (U+0192 Latin Small Letter F with Hook) \u2192 f  (common in LaTeX math)
+    text = text.replace('\u0192', 'f')
+    # Italic/math-mode letters that PDFs sometimes encode as Unicode variants
+    for old, new in {'\U0001d453': 'f', '\u0192': 'f', '\u0198': 'K'}.items():
+        text = text.replace(old, new)
+
+    # \u2500\u2500 LaTeX diacritic decomposition \u2192 composed Turkish chars \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    replacements = [
+        # --- \u011f / \u011e ---
+        ('g\u02d8', '\u011f'), ('\u02d8g', '\u011f'),
+        ('g\u0306', '\u011f'), ('\u0306g', '\u011f'),
+        ('\u00a8g', '\u011f'),
+        ('G\u02d8', '\u011e'), ('\u02d8G', '\u011e'),
+        ('G\u0306', '\u011e'), ('\u0306G', '\u011e'),
+        ('\u00a8G', '\u011e'),
+        # --- \u00fc / \u00dc ---
+        ('u\u00a8', '\u00fc'), ('\u00a8u', '\u00fc'),
+        ('u\u0308', '\u00fc'), ('\u0308u', '\u00fc'),
+        ('U\u00a8', '\u00dc'), ('\u00a8U', '\u00dc'),
+        ('U\u0308', '\u00dc'), ('\u0308U', '\u00dc'),
+        # --- \u015f / \u015e ---
+        ('s\u00b8', '\u015f'), ('\u00b8s', '\u015f'),
+        ('s\u0327', '\u015f'), ('\u0327s', '\u015f'),
+        ('S\u00b8', '\u015e'), ('\u00b8S', '\u015e'),
+        ('S\u0327', '\u015e'), ('\u0327S', '\u015e'),
+        # --- \u00e7 / \u00c7 ---
+        ('c\u00b8', '\u00e7'), ('\u00b8c', '\u00e7'),
+        ('c\u0327', '\u00e7'), ('\u0327c', '\u00e7'),
+        ('C\u00b8', '\u00c7'), ('\u00b8C', '\u00c7'),
+        ('C\u0327', '\u00c7'), ('\u0327C', '\u00c7'),
+        # --- \u00f6 / \u00d6 ---
+        ('o\u00a8', '\u00f6'), ('\u00a8o', '\u00f6'),
+        ('o\u0308', '\u00f6'), ('\u0308o', '\u00f6'),
+        ('O\u00a8', '\u00d6'), ('\u00a8O', '\u00d6'),
+        ('O\u0308', '\u00d6'), ('\u0308O', '\u00d6'),
+        # Edge cases with spaces between diacritic and letter
+        ('\u00a8 u', '\u00fc'), ('\u00a8 o', '\u00f6'),
+        ('\u00a8 U', '\u00dc'), ('\u00a8 O', '\u00d6'),
+        ('\u02d8 g', '\u011f'), ('\u02d8 G', '\u011e'),
+        ('\u00b8 s', '\u015f'), ('\u00b8 S', '\u015e'),
+        ('\u00b8 c', '\u00e7'), ('\u00b8 C', '\u00c7'),
+    ]
+    for broken, correct in replacements:
+        text = text.replace(broken, correct)
+
+    # Apply Unicode NFC normalization to catch any remaining composed forms
+    text = _ud.normalize('NFC', text)
+    return text
+
 
 def normalize_math_input(expr: str) -> str:
     """Convert raw math Unicode notation to our canonical parser form."""
@@ -173,6 +234,37 @@ def normalize_boolean(value: object) -> bool:
 
     return bool(value)
 
+
+def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+    """
+    Stage-1 OCR: Extract embedded text directly from a PDF using PyMuPDF.
+    This is far more accurate than image-based OCR for digitally-created PDFs
+    (e.g. LaTeX, Word exports) because it reads the actual Unicode glyphs.
+    Returns the full text of all pages joined with newlines.
+    Returns empty string if the PDF has no embedded text (scanned document).
+    """
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        pages_text = []
+        for page in doc:
+            # "text" mode preserves word order; "blocks" is also good for math-heavy pages
+            page_text = page.get_text("text")
+            if page_text.strip():
+                pages_text.append(page_text)
+        doc.close()
+        return "\n".join(pages_text)
+    except Exception as e:
+        print(f"PyMuPDF extraction error: {e}")
+        return ""
+
+
+def _is_text_sufficient(text: str, min_chars: int = 80) -> bool:
+    """Returns True if the extracted text has enough content to be usable."""
+    # Count only alphanumeric characters to avoid counting noise
+    alnum_count = sum(1 for c in text if c.isalnum())
+    return alnum_count >= min_chars
+
+
 def process_file_with_gemini(file_bytes: bytes, mime_type: str) -> list[dict]:
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
@@ -224,88 +316,110 @@ def extract_graph_with_gemini(file_bytes: bytes, mime_type: str, locale: str) ->
     if not _GEMINI_AVAILABLE:
         raise HTTPException(status_code=503, detail="Gemini API is not available. Add GEMINI_API_KEY to enable AI Vision mode.")
 
+    lang_instruction = (
+        "Write all description fields (natural_description, braille_friendly_description, shape_summary) in TURKISH."
+        if locale == "tr" else
+        "Write all description fields in ENGLISH."
+    )
+
+    prompt = f"""
+You are a world-class mathematics teacher analyzing a graph image for a blind student.
+Your goal: extract EVERY mathematically meaningful property so the student can build a
+perfect mental model AND a computer algebra system can solve related problems.
+
+{lang_instruction}
+All JSON keys and enum values stay in ENGLISH regardless of locale.
+Return ONLY valid JSON — no markdown fences, no commentary.
+
+STEP 1 — GRAPH TYPE
+  Choose: line | parabola | cubic | absolute_value | square_root | reciprocal |
+  exponential | logarithmic | trigonometric | circle | ellipse | hyperbola |
+  polynomial | piecewise | unknown
+
+STEP 2 — EQUATION  (exact if readable, estimated + approx:true otherwise)
+
+STEP 3 — AXIS ANALYSIS  (scale, labels, ranges)
+
+STEP 4 — KEY MATHEMATICAL FEATURES (extract everything visible or inferrable):
+  x-intercepts, y-intercept, vertex, axis of symmetry, local/global max & min,
+  inflection points, increasing/decreasing intervals, concave up/down intervals,
+  asymptotes (vertical, horizontal, oblique), domain, range,
+  period & amplitude (trig), center & radius (circle), 4-6 sample points.
+
+STEP 5 — CALCULUS SUMMARY (math_for_solver block):
+  first derivative f'(x), second derivative f''(x),
+  limit as x->+inf, limit as x->-inf,
+  nature of each critical point (local_min | local_max | saddle).
+
+STEP 6 — NATURAL DESCRIPTION (teacher speaking to blind student, locale language):
+  1. "What kind of graph is this and how does it behave overall?" (one sentence)
+  2. How the curve moves / changes direction.
+  3. Axis crossings with meaning.
+  4. At least 4 explicit coordinate examples.
+  5. Equation at the end.
+
+STEP 7 — BRAILLE-FRIENDLY DESCRIPTION (same content, one idea per line, shorter).
+
+OUTPUT JSON SCHEMA:
+{{
+  "graph_type": "<from STEP 1>",
+  "confidence": <0.0-1.0>,
+  "equation_text": "<equation or null>",
+  "equation_approx": <true|false>,
+  "axes": {{
+    "has_x_axis": true, "has_y_axis": true, "origin_visible": true,
+    "x_range": "<e.g. -5 to 5>", "y_range": "<e.g. -10 to 10>",
+    "x_scale": "<step or null>", "y_scale": "<step or null>",
+    "x_label": "<or null>", "y_label": "<or null>"
+  }},
+  "shape_summary": "<one sentence>",
+  "key_features": {{
+    "x_intercepts": [{{"x": 0, "y": 0, "approx": false}}],
+    "y_intercept": {{"x": 0, "y": 0, "approx": false}},
+    "slope": null,
+    "vertex": {{"x": 0, "y": 0, "approx": false}},
+    "axis_of_symmetry": "<x=1 or null>",
+    "opens": "<up|down|left|right|null>",
+    "maximum_points": [{{"x": 0, "y": 0, "label": "local|global"}}],
+    "minimum_points": [{{"x": 0, "y": 0, "label": "local|global"}}],
+    "inflection_points": [{{"x": 0, "y": 0}}],
+    "increasing_intervals": ["(-inf, 1)"],
+    "decreasing_intervals": ["(1, inf)"],
+    "concave_up_intervals": [],
+    "concave_down_intervals": [],
+    "asymptotes": {{"vertical": [], "horizontal": [], "oblique": []}},
+    "domain": "all real numbers",
+    "range": "y >= 0",
+    "period": null, "amplitude": null,
+    "center": null, "radius": null,
+    "notable_points": [{{"x": 0, "y": 0, "label": "description"}}]
+  }},
+  "sample_points": [{{"x": 0, "y": 0, "approx": false}}],
+  "math_for_solver": {{
+    "first_derivative": "<f'(x) or null>",
+    "second_derivative": "<f''(x) or null>",
+    "limit_pos_inf": "<behavior or null>",
+    "limit_neg_inf": "<behavior or null>",
+    "critical_points": [{{"x": 0, "type": "local_min|local_max|saddle"}}],
+    "parseable_equation": "<y=... for CAS>"
+  }},
+  "natural_description": "<teacher quality, locale language>",
+  "braille_friendly_description": "<short, one idea per line, locale language>",
+  "nemeth_ready_tokens": {{
+    "equation": "<Nemeth-ready string or null>",
+    "points": ["(x,y)"],
+    "relations": []
+  }},
+  "uncertainties": []
+}}
+"""
+
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
-        prompt = """
-        You are analyzing a mathematical graph for a blind user.
-
-        Describe the graph in a way that helps the user build a mental model of it.
-
-        Rules:
-        - Focus on mathematical meaning, not colors or decorative appearance.
-        - Identify the graph type if possible.
-        - The explanation must help the user imagine the graph step by step, not just list facts.
-        - Mention axes, intercepts, key points, direction, and equation if available.
-        - Use explicit coordinates when possible.
-        - If exact values are unclear, say "approximately".
-        - Do not hallucinate hidden values.
-        - Do not use phrases like "as shown" or "you can see".
-        - Do not start with the equation.
-        - Do not just list slope and intercepts without explaining what they mean.
-        - Use simple, clear sentences.
-        - Include movement language such as "as x increases, y increases" when it fits the graph.
-        - Include 2 to 3 explicit example points when possible.
-        - Make the natural description feel like a teacher explaining the graph to a blind student.
-        - Use English enum values and English text fields.
-        - Return valid JSON only.
-
-        Schema:
-        {
-          "graph_type": "line | parabola | absolute_value | vertical_line | horizontal_line | circle | polynomial | piecewise | unknown",
-          "confidence": 0.0,
-          "equation_text": "string or null",
-          "axes": {
-            "has_x_axis": true,
-            "has_y_axis": true,
-            "origin_visible": true,
-            "scale_notes": "string"
-          },
-          "shape_summary": "short structural summary",
-          "key_features": {
-            "x_intercepts": [{"x": number, "y": 0, "approx": false}],
-            "y_intercepts": [{"x": 0, "y": number, "approx": false}],
-            "slope": "number or null",
-            "increasing_intervals": ["string"],
-            "decreasing_intervals": ["string"],
-            "vertex": {"x": number, "y": number, "approx": false},
-            "opens": "up | down | left | right | null",
-            "axis_of_symmetry": "string or null",
-            "maximum_point": {"x": number, "y": number},
-            "minimum_point": {"x": number, "y": number},
-            "center": {"x": number, "y": number},
-            "radius": "number or null",
-            "notable_points": [{"x": number, "y": number, "label": "string"}]
-          },
-          "natural_description": "clear explanation for a blind user or empty string",
-          "braille_friendly_description": "shorter and simpler explanation or empty string",
-          "nemeth_ready_tokens": {
-            "equation": "string or null",
-            "points": ["(x,y)"],
-            "relations": ["string"]
-          },
-          "uncertainties": ["string"]
-        }
-
-        Important accessibility rule:
-        Both "natural_description" and "braille_friendly_description" must follow this order:
-        1. Overall shape and behavior. The first sentence must answer: "What kind of graph is this and how does it generally behave?"
-        2. How the graph changes or moves.
-        3. Axis intersections, with meaning explained in words.
-        4. Example points, with at least 2 to 3 explicit coordinates when possible.
-        5. Equation at the end.
-
-        The natural description should be detailed and explanatory.
-        The Braille-friendly version must be shorter, use one idea per line, keep the same order, and avoid unnecessary words.
-
-        Examples:
-        - "This graph shows a straight line rising from left to right."
-        - "This graph shows a U-shaped parabola opening upward."
-        - "This graph shows a horizontal line where y stays constant."
-        """
-        result = model.generate_content([
-            {"mime_type": mime_type, "data": file_bytes},
-            prompt
-        ])
+        result = model.generate_content(
+            [{"mime_type": mime_type, "data": file_bytes}, prompt],
+            generation_config={"temperature": 0},
+        )
 
         text = clean_gemini_json(result.text)
         if not text:
@@ -321,6 +435,7 @@ def extract_graph_with_gemini(file_bytes: bytes, mime_type: str, locale: str) ->
     except Exception as e:
         print(f"Gemini API Error (process_graph) [key={get_masked_gemini_key_prefix()}]: {e}")
         raise HTTPException(status_code=500, detail=f"Graph analysis failed: {str(e)}")
+
 
 
 def process_graph_bytes(file_bytes: bytes, mime_type: str, locale: str) -> dict:
@@ -399,63 +514,95 @@ async def extract_image_text_full(
     profile: str = Form("image"),
     draft_text: str = Form(""),
 ):
-    """Gemini API kullanarak görselden düz metin ve matematik formüllerini tam doğrulukla (OCR) çıkarır."""
+    """Smart two-stage OCR pipeline:
+    Stage 1: PyMuPDF direct text extraction (for digital PDFs — most accurate, no AI needed).
+    Stage 2: Gemini vision fallback (for scanned PDFs / images where Stage 1 yields nothing).
+    fix_latex_encoding() is applied in both stages.
+    """
+    if not image.content_type.startswith("image/") and not image.content_type.startswith("application/pdf"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Send an Image or PDF.")
+
+    file_bytes = await image.read()
+    mime_type = image.content_type
+
+    # ── Stage 1: PyMuPDF direct extraction (PDFs only) ────────────────────────
+    if mime_type == "application/pdf" or getattr(image, "filename", "").endswith(".pdf"):
+        raw_text = extract_text_from_pdf_bytes(file_bytes)
+        if _is_text_sufficient(raw_text):
+            # Apply deterministic Turkish/LaTeX encoding fix
+            cleaned = fix_latex_encoding(raw_text)
+            cleaned = unicodedata.normalize("NFC", cleaned)
+            print(f"[OCR] Stage-1 (PyMuPDF): extracted {len(cleaned)} chars — Gemini not used.")
+            return JSONResponse(content={"text": cleaned, "ocr_stage": "pymupdf"})
+        print("[OCR] Stage-1 yielded insufficient text — falling back to Gemini vision.")
+
+    # ── Stage 2: Gemini vision (images + scanned PDFs) ────────────────────────
     if not _GEMINI_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Gemini API is not available.")
-        
-    if not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Invalid file type. Send an Image.")
-    
+        raise HTTPException(status_code=503, detail="Gemini API is not available and PyMuPDF found no embedded text. The file may be a scanned image. Please add a GEMINI_API_KEY to enable AI vision mode.")
+
     try:
-        file_bytes = await image.read()
-        mime_type = image.content_type
-        
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = """
-Lütfen bu görseldeki tüm metni, formülleri ve içerikleri olduğu gibi, karakter karakter en doğru şekilde dışa aktar. 
-1. Türkçe karakterleri (ğ, ü, ş, ı, ö, ç) tamamen doğru yaz (asla birleştirilmiş veya bozuk harfler kullanma, 'yo˘gundurlar' yerine 'yoğundurlar' yaz).
-2. Matematiksel işlemleri, sembolleri (√, ≤, ≥, integral, üstel vb.) ve değişkenleri kesin bir doğrulukla metne dönüştür.
-3. Sadece ve sadece dışa aktarılan metni yaz. Önüne veya arkasına kendi yorumlarını, markdown etiketlerini (```) veya açıklamalar ekleme.
+        Please transcribe ALL text and mathematical content from this image/page character by character with maximum fidelity.
+
+        CRITICAL — TURKISH CHARACTER REPAIR:
+        This document may be a LaTeX PDF where Turkish characters are stored as two separate glyphs
+        (a diacritic mark + a base letter). You MUST apply the following corrections:
+
+        Broken form → Correct Turkish character:
+          ˘g  or  g˘  →  ğ      ˘G  or  G˘  →  Ğ
+          ¨u  or  u¨  →  ü      ¨U  or  U¨  →  Ü
+          ¸s  or  s¸  →  ş      ¸S  or  S¸  →  Ş
+          ¨o  or  o¨  →  ö      ¨O  or  O¨  →  Ö
+          ¸c  or  c¸  →  ç      ¸C  or  C¸  →  Ç
+          dotless-ı (ı)         →  ı
+          ƒ (florin/italic f)   →  f
+
+        Real examples from LaTeX PDFs:
+          "K¨okler" → "Kökler"
+          "b¨oyle" → "böyle"
+          "tanımlanmı¸s" → "tanımlanmış"
+          "varsayaca˘gız" → "varsayacağız"
+          "¨Usler" → "Üsler"
+          "ƒ(x)" → "f(x)"
+
+        OTHER RULES:
+        1. Transcribe all mathematical symbols (√, ≤, ≥, ∫, ∂, etc.) accurately.
+        2. Preserve line breaks as seen on the page.
+        3. Include page numbers and section headers.
+        4. Output ONLY the transcribed text — no markdown, no JSON, no comments.
         """
         if profile == "pdf_math":
             draft_hint = draft_text.strip()[:6000]
             prompt = f"""
-Bu görsel bir PDF sayfası veya ders kitabı parçasıdır. Görevin SAYFADAKİ METNİ VE MATEMATİK İFADELERİNİ satır satır, mümkün olan en birebir şekilde transkribe etmektir.
+        This image is a PDF page or textbook excerpt. Transcribe EVERY line exactly as it appears.
 
-Çok önemli:
-- Kaynak gerçek görseldir. Aşağıda verilecek taslak metin sadece yardımcı ipucudur; görselle çelişirse görseli esas al.
-- Amaç "özetlemek" veya "yeniden yazmak" değil, orijinal içeriği düz metin olarak doğru aktarmaktır.
-- Çıktıdaki her satır, sayfadaki tek bir okunabilir satıra karşılık gelsin. Komşu satırları birleştirme. Farklı kuralları veya sütunları birbirine karıştırma.
+        Rules:
+        - The source of truth is the image, not the draft below.
+        - Do NOT summarize or rewrite — output the original content as plain text.
+        - Each output line must correspond to exactly one readable line on the page.
+        - Apply ALL Turkish character repairs listed above (˘g→ğ, ¨u→ü, etc.).
+        - Convert ƒ(x) → f(x) and other font variants to standard math characters.
+        - Preserve formulas: `f(x)/g(x)`, `lim x→c`, `L/M`.
+        - Keep minus signs (−), relational symbols (≠, ≤, ≥, ∞, √, →).
+        - Return ONLY plain text.
 
-Kurallar:
-1. Başlık, numara ve kural adı solda; formül sağda ise TEK SATIRDA birleştir. Ama aynı satıra sadece o satıra ait tek kuralı yaz.
-2. Limit alt bilgisi satır altında görünüyorsa bunu `lim x→c ...` biçiminde aynı satıra taşı.
-3. Kesirleri düz metinde doğru yaz: `f(x)/g(x)` ve `L/M`. Gereksiz boşluk ekleme.
-4. `ƒ(x)` varsa `f(x)` yaz. Görseldeki süslü/font farklı karakterleri standart matematik karakterine çevir ama anlamı değiştirme.
-5. Eksi işaretini ve özel sembolleri doğru koru: `−`, `≠`, `≤`, `≥`, `∞`, `√`, `→`.
-6. Aynı kuralı tekrar etme. Yan yana duran farklı satırları tek satır yapma. Özellikle şunları ASLA üretme: `xSc`, `x S c`, `lim lim`, `x x x`, `L / M`.
-7. Şüpheli bir karakter varsa en olası doğru karakteri yaz ama sembol uydurma. Okunmuyorsa sadece o kısmı kısa ve minimal bırak; açıklama ekleme.
-8. Sadece saf metni döndür. Markdown, JSON, açıklama veya yorum ekleme.
+        Draft hint (use only if helpful, image takes priority):
+        {draft_hint if draft_hint else "(none)"}
+        """
+        response = model.generate_content(
+            [{"mime_type": mime_type, "data": file_bytes}, prompt],
+            generation_config={"temperature": 0},
+        )
+        extracted_text = fix_latex_encoding(response.text.strip())
+        extracted_text = unicodedata.normalize("NFC", extracted_text)
+        print(f"[OCR] Stage-2 (Gemini): extracted {len(extracted_text)} chars.")
+        return JSONResponse(content={"text": extracted_text, "ocr_stage": "gemini"})
 
-Beklenen çıktı örnekleri:
-1. Sum Rule: lim x→c (f(x) + g(x)) = L + M
-5. Quotient Rule: lim x→c f(x)/g(x) = L/M, M ≠ 0
-
-Yardımcı taslak metin:
-{draft_hint if draft_hint else "(taslak yok)"}
-"""
-        response = model.generate_content([
-            {"mime_type": mime_type, "data": file_bytes},
-            prompt
-        ], generation_config={"temperature": 0})
-        
-        # Sadece saf metni döndür (trimlenmiş şekilde)
-        extracted_text = response.text.strip()
-        return JSONResponse(content={"text": extracted_text})
-        
     except Exception as e:
         print(f"Gemini API Error (extract_image_text_full) [key={get_masked_gemini_key_prefix()}]: {e}")
         raise HTTPException(status_code=500, detail=f"Text extraction failed: {str(e)}")
+
 
 def process_text_raw_with_gemini(text_input: str) -> list[dict]:
     """Gemini ile metinden matematik denklemlerini çıkar. API yoksa [] döner."""
