@@ -5,7 +5,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { exportDocuments } from "@/lib/exportDocuments";
 import { buildSearchableDocumentText } from "@/lib/documents";
-import { isReaderRecommended, stripStoredPageMarkers } from "@/lib/documentReview";
+import { buildReviewPagesFromDocument, isReaderRecommended, stripStoredPageMarkers } from "@/lib/documentReview";
 import { useI18n } from "@/components/I18nProvider";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
 import { AlignedBrailleComparison } from "@/components/AlignedBrailleComparison";
@@ -148,6 +148,9 @@ export function DocumentsPanel({
   const [previewDocumentId, setPreviewDocumentId] = useState(null);
   const [previewDetails, setPreviewDetails] = useState(null);
   const [previewDetailsLoading, setPreviewDetailsLoading] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [previewPageIndex, setPreviewPageIndex] = useState(0);
   const [isClient, setIsClient] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
@@ -209,6 +212,34 @@ export function DocumentsPanel({
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  useEffect(() => {
+    setIsRenaming(false);
+    setRenameValue(previewDocument?.file_name || "");
+    setPreviewPageIndex(0);
+  }, [previewDocument?.id]);
+
+  const previewPages = useMemo(
+    () => (previewDetails ? buildReviewPagesFromDocument(previewDetails) : []),
+    [previewDetails],
+  );
+
+  const previewPage = previewPages[previewPageIndex] || null;
+
+  useEffect(() => {
+    if (!previewPages.length) {
+      if (previewPageIndex !== 0) {
+        setPreviewPageIndex(0);
+      }
+      return;
+    }
+
+    if (previewPageIndex <= previewPages.length - 1) {
+      return;
+    }
+
+    setPreviewPageIndex(Math.max(previewPages.length - 1, 0));
+  }, [previewPageIndex, previewPages.length]);
 
   useEffect(() => {
     if (!previewDocumentId) {
@@ -474,6 +505,41 @@ export function DocumentsPanel({
       },
       documentToUpdate.is_archived ? t("documents.restoredToActive") : t("documents.movedToArchive"),
     );
+  }
+
+  async function handleRenameDocument(documentToUpdate, nextName) {
+    const trimmed = String(nextName || "").trim();
+
+    if (!trimmed) {
+      const message = t("documents.renameEmpty");
+      setActionMessage("");
+      setActionError(message);
+      onNotify?.({ type: "error", title: t("documents.updateFailedTitle"), message });
+      return;
+    }
+
+    if (trimmed === documentToUpdate.file_name) {
+      setIsRenaming(false);
+      return;
+    }
+
+    await runDocumentMutation(
+      `rename:${documentToUpdate.id}`,
+      async () => {
+        const { error } = await supabase
+          .from("documents")
+          .update({ file_name: trimmed })
+          .eq("id", documentToUpdate.id);
+
+        if (error) {
+          throw error;
+        }
+      },
+      t("documents.renameSuccess", { name: trimmed }),
+    );
+
+    setIsRenaming(false);
+    setRenameValue(trimmed);
   }
 
   async function handleBulkArchive() {
@@ -960,13 +1026,69 @@ export function DocumentsPanel({
                   <section className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <section className="min-w-0">
                       <p className="accent-label text-sm font-semibold uppercase tracking-[0.22em]">{t("documents.documentReview")}</p>
-                      <h3 className="mt-2 truncate text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">
-                        {previewDocument.file_name}
-                      </h3>
+                      {isRenaming ? (
+                        <input
+                          value={renameValue}
+                          onChange={(event) => setRenameValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              handleRenameDocument(previewDocument, renameValue);
+                            }
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              setIsRenaming(false);
+                              setRenameValue(previewDocument.file_name);
+                            }
+                          }}
+                          className="field-input mt-2 w-full rounded-2xl px-4 py-3 text-base font-semibold text-slate-950 md:text-lg"
+                          aria-label={t("documents.renameLabel")}
+                          placeholder={t("documents.renamePlaceholder")}
+                          autoFocus
+                        />
+                      ) : (
+                        <h3 className="mt-2 truncate text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">
+                          {previewDocument.file_name}
+                        </h3>
+                      )}
                       <p className="mt-2 text-sm text-slate-500">{formatDocumentDate(previewDocument.created_at, locale)}</p>
                       <DocumentBadges document={previewDocument} t={t} />
                     </section>
                     <section className="flex flex-wrap gap-2">
+                      {isRenaming ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleRenameDocument(previewDocument, renameValue)}
+                            disabled={busyActionKey === `rename:${previewDocument.id}`}
+                            className="button-primary rounded-full px-4 py-2 text-sm font-semibold transition disabled:opacity-60"
+                          >
+                            {t("documents.renameSave")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsRenaming(false);
+                              setRenameValue(previewDocument.file_name);
+                            }}
+                            disabled={busyActionKey === `rename:${previewDocument.id}`}
+                            className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition disabled:opacity-60"
+                          >
+                            {t("documents.renameCancel")}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsRenaming(true);
+                            setRenameValue(previewDocument.file_name);
+                          }}
+                          className="button-secondary rounded-full px-4 py-2 text-sm font-semibold transition"
+                        >
+                          {t("documents.rename")}
+                        </button>
+                      )}
                       {previewSupportsReader ? (
                         <button
                           type="button"
@@ -1014,18 +1136,70 @@ export function DocumentsPanel({
                     <section className="flex items-center justify-center py-16">
                       <span className="block h-8 w-8 animate-spin rounded-full border-[3px] border-violet-200 border-t-violet-600" />
                     </section>
-                  ) : previewDetails ? (
-                    <AlignedBrailleComparison
-                      originalText={previewDetails.original_text}
-                      brailleText={stripStoredPageMarkers(previewDetails.braille_text)}
-                      originalLabel={t("documents.originalText")}
-                      brailleLabel={t("documents.brailleOutput")}
-                      notesTitle={t("documents.comparisonNotesTitle")}
-                      notes={comparisonNotes}
-                      wordsPerRow={8}
-                      interactive
-                      compact
-                    />
+                  ) : previewDetails && previewPage ? (
+                    <>
+                      {previewPages.length > 1 ? (
+                        <section className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-700">
+                            {t("review.pageIndicator", { current: previewPage.pageNumber, total: previewPages.length })}
+                          </p>
+                          <section className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewPageIndex((index) => Math.max(index - 1, 0))}
+                              disabled={previewPageIndex === 0}
+                              className="button-secondary rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                            >
+                              {t("review.previousPage")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewPageIndex((index) => Math.min(index + 1, previewPages.length - 1))}
+                              disabled={previewPageIndex === previewPages.length - 1}
+                              className="button-primary rounded-full px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {t("review.nextPage")}
+                            </button>
+                          </section>
+                        </section>
+                      ) : null}
+                      <AlignedBrailleComparison
+                        originalText={previewPage.originalText}
+                        brailleText={stripStoredPageMarkers(previewPage.brailleText, previewDetails.source_type)}
+                        originalLabel={t("documents.originalText")}
+                        brailleLabel={t("documents.brailleOutput")}
+                        notesTitle={t("documents.comparisonNotesTitle")}
+                        notes={comparisonNotes}
+                        wordsPerRow={8}
+                        interactive
+                        compact
+                      />
+                      {previewPages.length > 1 ? (
+                        <section className="mt-6 flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-700">
+                            {t("review.pageIndicator", { current: previewPage.pageNumber, total: previewPages.length })}
+                          </p>
+                          <section className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewPageIndex((index) => Math.max(index - 1, 0))}
+                              disabled={previewPageIndex === 0}
+                              className="button-secondary rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                            >
+                              {t("review.previousPage")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewPageIndex((index) => Math.min(index + 1, previewPages.length - 1))}
+                              disabled={previewPageIndex === previewPages.length - 1}
+                              className="button-primary rounded-full px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {t("review.nextPage")}
+                            </button>
+                          </section>
+                        </section>
+                      ) : null}
+                    </>
                   ) : null}
                 </section>
               </section>

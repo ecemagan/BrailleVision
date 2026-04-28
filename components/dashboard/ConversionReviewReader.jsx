@@ -3,15 +3,12 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { AlignedBrailleComparison } from "@/components/AlignedBrailleComparison";
 import { BackButton } from "@/components/BackButton";
-import { BlockAlignedComparison } from "@/components/BlockAlignedComparison";
 import { useAuth } from "@/components/AuthProvider";
 import { useI18n } from "@/components/I18nProvider";
-import { alignBrailleTextToOriginalBlocks, buildReviewPagesFromDocument, isReaderRecommended } from "@/lib/documentReview";
-import { getSourceLabel } from "@/lib/documents";
+import { buildReviewPagesFromDocument, stripStoredPageMarkers } from "@/lib/documentReview";
 import { exportDocuments } from "@/lib/exportDocuments";
-import { resolvePageJump } from "@/lib/pageNavigation";
-import { segmentPlainTextPage } from "@/lib/pageSegmentation";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
 
 const reviewDocumentCache = new Map();
@@ -173,15 +170,31 @@ export function ConversionReviewReader() {
   const { supabase, user } = useAuth();
   const { t, locale } = useI18n();
   const [documentRecord, setDocumentRecord] = useState(null);
-  const [preparedReview, setPreparedReview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  const [jumpValue, setJumpValue] = useState("1");
   const documentId = searchParams.get("document");
-  const isFreshResult = searchParams.get("fresh") === "1";
+
+  const comparisonNotes = useMemo(
+    () => [
+      t("documents.comparisonNoteAligned"),
+      t("documents.comparisonNoteSpacing"),
+      t("documents.comparisonNoteHover"),
+    ],
+    [t],
+  );
+
+  const exportFormatOptions = useMemo(
+    () => [
+      { value: "brf", label: ".brf" },
+      { value: "txt", label: ".txt" },
+      { value: "docx", label: ".docx" },
+      { value: "pdf", label: ".pdf" },
+    ],
+    [],
+  );
 
   useEffect(() => {
     let isCancelled = false;
@@ -189,15 +202,6 @@ export function ConversionReviewReader() {
     async function loadDocument() {
       if (!documentId || !supabase || !user) {
         setDocumentRecord(null);
-        setPreparedReview(null);
-        setLoading(false);
-        return;
-      }
-
-      const cachedReview = readCachedReview(documentId);
-      if (cachedReview) {
-        setDocumentRecord(cachedReview.documentRecord);
-        setPreparedReview(cachedReview);
         setLoading(false);
         return;
       }
@@ -205,7 +209,6 @@ export function ConversionReviewReader() {
       setLoading(true);
       setErrorMessage("");
       setDocumentRecord(null);
-      setPreparedReview(null);
 
       const { data, error } = await supabase
         .from("documents")
@@ -220,16 +223,12 @@ export function ConversionReviewReader() {
 
       if (error) {
         setDocumentRecord(null);
-        setPreparedReview(null);
         setErrorMessage(getFriendlyDocumentMessage(error, t("review.loadFailed")));
         setLoading(false);
         return;
       }
 
-      const nextPreparedReview = prepareReviewDocument(data);
-      writeCachedReview(documentId, nextPreparedReview);
       setDocumentRecord(data);
-      setPreparedReview(nextPreparedReview);
       setLoading(false);
     }
 
@@ -241,65 +240,29 @@ export function ConversionReviewReader() {
   }, [documentId, supabase, t, user]);
 
   const reviewPages = useMemo(
-    () => preparedReview?.reviewPages || [],
-    [preparedReview],
+    () => (documentRecord ? buildReviewPagesFromDocument(documentRecord) : []),
+    [documentRecord],
   );
+  const currentPage = reviewPages[currentPageIndex] || null;
 
   useEffect(() => {
     setCurrentPageIndex(0);
   }, [documentId]);
 
   useEffect(() => {
-    setJumpValue(String((currentPageIndex || 0) + 1));
-  }, [currentPageIndex]);
+    if (!reviewPages.length) {
+      if (currentPageIndex !== 0) {
+        setCurrentPageIndex(0);
+      }
+      return;
+    }
 
-  useEffect(() => {
     if (currentPageIndex <= reviewPages.length - 1) {
       return;
     }
 
     setCurrentPageIndex(Math.max(reviewPages.length - 1, 0));
   }, [currentPageIndex, reviewPages.length]);
-
-  const currentPage = reviewPages[currentPageIndex] ?? null;
-  const canOpenReader = documentRecord
-    ? isReaderRecommended({ sourceType: documentRecord.source_type, originalText: documentRecord.original_text })
-    : false;
-  const comparisonNotes = useMemo(
-    () => [
-      t("review.noteAlignedRows"),
-      t("review.noteSpacing"),
-      t("review.noteSync"),
-    ],
-    [t],
-  );
-
-  const blocks = useMemo(() => {
-    if (!currentPage) {
-      return [];
-    }
-
-    const rawBlocks =
-      currentPage.blocks ||
-      currentPage.brailleBlocks ||
-      currentPage.originalBlocks ||
-      currentPage.reviewBlocks ||
-      currentPage.alignedBlocks ||
-      currentPage.pageBlocks ||
-      [];
-    const normalizedBlocks = normalizeReviewBlocks(rawBlocks, currentPage.pageNumber);
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log("Review raw blocks:", rawBlocks);
-      console.log("Review normalized blocks:", normalizedBlocks);
-    }
-
-    return normalizedBlocks;
-  }, [currentPage]);
-  const baseFileName = useMemo(
-    () => sanitizeFileToken(documentRecord?.file_name?.replace(/\.[^/.]+$/, "")) || "braille-review",
-    [documentRecord?.file_name],
-  );
 
   async function handleCopy(value, successMessage) {
     try {
@@ -312,54 +275,32 @@ export function ConversionReviewReader() {
     }
   }
 
-  function handleDownload(content, type) {
-    if (!currentPage) {
+  async function handleCopyDocumentBraille() {
+    if (!documentRecord) {
       return;
     }
 
-    const suffix = type === "braille" ? "braille" : "original";
-    downloadTextFile(content, `${baseFileName}-page-${currentPage.pageNumber}-${suffix}.txt`);
-    setActionError("");
-    setActionMessage(
-      type === "braille" ? t("review.downloadBrailleSuccess") : t("review.downloadOriginalSuccess"),
+    await handleCopy(
+      stripStoredPageMarkers(documentRecord.braille_text, documentRecord.source_type),
+      t("documents.brailleCopiedFrom", { name: documentRecord.file_name }),
     );
   }
 
-  async function handleDownloadBrf() {
+  async function handleExportDocument(format) {
     if (!documentRecord) {
       return;
     }
 
     try {
-      await exportDocuments([documentRecord], "brf");
+      await exportDocuments([documentRecord], format);
       setActionError("");
-      setActionMessage(t("review.downloadBrailleBrfSuccess"));
+      setActionMessage(
+        t("documents.exportCompleteMessageSingle", { name: documentRecord.file_name, format: format.toUpperCase() }),
+      );
     } catch (error) {
       setActionMessage("");
-      setActionError(getFriendlyDocumentMessage(error, t("review.downloadFailed")));
+      setActionError(getFriendlyDocumentMessage(error, t("documents.exportFailed")));
     }
-  }
-
-  function handlePageJump() {
-    const result = resolvePageJump(jumpValue, reviewPages.length);
-
-    if (!result.ok) {
-      setActionMessage("");
-      if (result.error === "empty") {
-        setActionError(t("review.jumpEmpty"));
-        return;
-      }
-
-      setActionError(
-        result.error === "out_of_range"
-          ? t("review.jumpOutOfRange", { total: reviewPages.length })
-          : t("review.jumpInvalid"),
-      );
-      return;
-    }
-
-    setActionError("");
-    setCurrentPageIndex(result.pageIndex);
   }
 
   return (
@@ -367,39 +308,15 @@ export function ConversionReviewReader() {
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex items-center gap-4">
           <BackButton />
-          <p className="section-kicker">{t("review.kicker")}</p>
         </div>
-
-        <section className="surface-card hero-wash rounded-2xl p-6 md:p-8">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-            <div className="min-w-0">
-              <h1 className="font-display text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">
-                {t("review.title")}
-              </h1>
-              <p className="mt-3 max-w-3xl text-base leading-8 text-slate-700 md:text-lg">
-                {t("review.description")}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Link href="/dashboard?tab=upload" className="button-secondary rounded-full px-5 py-3 text-sm font-semibold">
-                {t("review.backToConvert")}
-              </Link>
-              <Link href="/dashboard?tab=documents" className="button-secondary rounded-full px-5 py-3 text-sm font-semibold">
-                {t("review.backToLibrary")}
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        {isFreshResult ? (
-          <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-            {t("review.freshResultMessage")}
-          </p>
-        ) : null}
-
         {!documentId ? (
           <div className="surface-card rounded-2xl p-8 text-center">
             <p className="text-xl font-semibold text-slate-900">{t("review.noDocumentSelected")}</p>
+            <div className="mt-5 flex justify-center">
+              <Link href="/dashboard?tab=documents" className="button-secondary rounded-full px-5 py-3 text-sm font-semibold">
+                {t("common.close")}
+              </Link>
+            </div>
           </div>
         ) : null}
 
@@ -432,168 +349,103 @@ export function ConversionReviewReader() {
             <section className="surface-card rounded-2xl p-6 md:p-7">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div className="min-w-0">
-                  <p className="section-kicker">{t("review.documentLabel")}</p>
+                  <p className="section-kicker">{t("documents.documentReview")}</p>
                   <h2 className="mt-2 truncate text-3xl font-bold text-slate-950 md:text-4xl">{documentRecord.file_name}</h2>
                   <p className="mt-3 text-sm text-slate-500">{formatReviewDate(documentRecord.created_at, locale)}</p>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <div className="panel-subtle rounded-2xl px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{t("review.sourceType")}</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">{getSourceLabel(documentRecord.source_type)}</p>
-                  </div>
-                  <div className="panel-subtle rounded-2xl px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{t("review.pageCount")}</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">{reviewPages.length}</p>
-                  </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyDocumentBraille}
+                    className="button-secondary rounded-full px-4 py-3 text-sm font-semibold"
+                  >
+                    {t("documents.copy")}
+                  </button>
+                  {exportFormatOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleExportDocument(option.value)}
+                      className="button-secondary rounded-full px-4 py-3 text-sm font-semibold"
+                    >
+                      {t("documents.export")} {option.label}
+                    </button>
+                  ))}
+                  <Link href="/dashboard?tab=documents" className="button-secondary rounded-full px-4 py-3 text-sm font-semibold">
+                    {t("common.close")}
+                  </Link>
                 </div>
               </div>
             </section>
 
-            {!canOpenReader ? (
-              <div className="surface-card rounded-2xl p-8 text-center">
-                <p className="text-lg font-semibold text-slate-900">{t("review.readerNotNeeded")}</p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">{t("review.readerNotNeededDescription")}</p>
-              </div>
-            ) : null}
-
-            {canOpenReader && currentPage ? (
+            {currentPage ? (
               <>
-                <div className="surface-card rounded-2xl p-5 md:p-6">
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                    <div>
-                      <p className="section-kicker">{t("review.syncMode")}</p>
-                      <h3 className="mt-2 text-2xl font-bold text-slate-950">{t("review.pageIndicator", { current: currentPage.pageNumber, total: reviewPages.length })}</h3>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPageIndex((index) => Math.max(index - 1, 0))}
-                        disabled={currentPageIndex === 0}
-                        className="button-secondary rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-60"
-                      >
-                        {t("review.previousPage")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPageIndex((index) => Math.min(index + 1, reviewPages.length - 1))}
-                        disabled={currentPageIndex === reviewPages.length - 1}
-                        className="button-primary rounded-full px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {t("review.nextPage")}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <span className="info-chip rounded-full px-3 py-1 text-xs font-semibold">
-                      {currentPage.structureMode}
-                    </span>
-                    <span className="info-chip rounded-full px-3 py-1 text-xs font-semibold">
-                      {currentPage.language}
-                    </span>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(currentPage.originalText, t("review.copyOriginalSuccess"))}
-                      className="button-secondary rounded-full px-4 py-3 text-sm font-semibold"
-                    >
-                      {t("review.copyOriginal")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(currentPage.brailleText, t("review.copyBrailleSuccess"))}
-                      className="button-secondary rounded-full px-4 py-3 text-sm font-semibold"
-                    >
-                      {t("review.copyBraille")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(currentPage.originalText, "original")}
-                      className="button-secondary rounded-full px-4 py-3 text-sm font-semibold"
-                    >
-                      {t("review.downloadOriginal")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(currentPage.brailleText, "braille")}
-                      className="button-secondary rounded-full px-4 py-3 text-sm font-semibold"
-                    >
-                      {t("review.downloadBraille")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDownloadBrf}
-                      className="button-secondary rounded-full px-4 py-3 text-sm font-semibold"
-                    >
-                      {t("review.downloadBrailleBrf")}
-                    </button>
-                  </div>
-                  <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
-                    <label className="text-sm font-semibold text-slate-700" htmlFor="page-jump-input">
-                      {t("review.jumpLabel")}
-                    </label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input
-                        id="page-jump-input"
-                        inputMode="numeric"
-                        value={jumpValue}
-                        onChange={(event) => setJumpValue(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            handlePageJump();
-                          }
-                        }}
-                        className="field-input w-24 rounded-full px-4 py-2 text-sm"
-                        aria-label={t("review.jumpLabel")}
-                      />
-                      <button
-                        type="button"
-                        onClick={handlePageJump}
-                        className="button-secondary rounded-full px-4 py-2 text-sm font-semibold"
-                      >
-                        {t("review.jumpGo")}
-                      </button>
-                      <span className="text-sm text-slate-500">
+                {reviewPages.length > 1 ? (
+                  <section className="surface-card rounded-2xl p-4 md:p-5">
+                    <section className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-700">
                         {t("review.pageIndicator", { current: currentPage.pageNumber, total: reviewPages.length })}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                      </p>
+                      <section className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPageIndex((index) => Math.max(index - 1, 0))}
+                          disabled={currentPageIndex === 0}
+                          className="button-secondary rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                        >
+                          {t("review.previousPage")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPageIndex((index) => Math.min(index + 1, reviewPages.length - 1))}
+                          disabled={currentPageIndex === reviewPages.length - 1}
+                          className="button-primary rounded-full px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {t("review.nextPage")}
+                        </button>
+                      </section>
+                    </section>
+                  </section>
+                ) : null}
 
-                <BlockAlignedComparison
-                  blocks={blocks}
-                  originalLabel={t("review.originalPage")}
-                  brailleLabel={t("review.braillePage")}
-                  notesTitle={t("review.notesTitle")}
+                <AlignedBrailleComparison
+                  originalText={currentPage.originalText}
+                  brailleText={stripStoredPageMarkers(currentPage.brailleText, documentRecord.source_type)}
+                  originalLabel={t("documents.originalText")}
+                  brailleLabel={t("documents.brailleOutput")}
+                  notesTitle={t("documents.comparisonNotesTitle")}
                   notes={comparisonNotes}
+                  wordsPerRow={8}
+                  interactive
+                  compact
                 />
-
-                <div className="surface-card rounded-2xl p-5 md:p-6">
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="text-sm leading-7 text-slate-600">
-                      {t("review.footerHint")}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPageIndex((index) => Math.max(index - 1, 0))}
-                        disabled={currentPageIndex === 0}
-                        className="button-secondary rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-60"
-                      >
-                        {t("review.previousPage")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPageIndex((index) => Math.min(index + 1, reviewPages.length - 1))}
-                        disabled={currentPageIndex === reviewPages.length - 1}
-                        className="button-primary rounded-full px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {t("review.nextPage")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                {reviewPages.length > 1 ? (
+                  <section className="surface-card mt-6 rounded-2xl p-4 md:p-5">
+                    <section className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-700">
+                        {t("review.pageIndicator", { current: currentPage.pageNumber, total: reviewPages.length })}
+                      </p>
+                      <section className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPageIndex((index) => Math.max(index - 1, 0))}
+                          disabled={currentPageIndex === 0}
+                          className="button-secondary rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                        >
+                          {t("review.previousPage")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPageIndex((index) => Math.min(index + 1, reviewPages.length - 1))}
+                          disabled={currentPageIndex === reviewPages.length - 1}
+                          className="button-primary rounded-full px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {t("review.nextPage")}
+                        </button>
+                      </section>
+                    </section>
+                  </section>
+                ) : null}
               </>
             ) : null}
           </>
