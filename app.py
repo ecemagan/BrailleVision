@@ -51,7 +51,7 @@ from src.braillevision.tts_engine import synthesize_voice_xtts
 os.environ["COQUI_TOS_AGREED"] = "1"
 
 # Set Gemini API key (opsiyonel – yoksa metin çevirisi yerel mapping ile çalışır)
-_GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAd8s0nIilvzk9BVZ296YRhynsvJyQdfNs").strip()
+_GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 _GEMINI_AVAILABLE = bool(_GEMINI_API_KEY)
 if _GEMINI_AVAILABLE:
     genai.configure(api_key=_GEMINI_API_KEY)
@@ -431,7 +431,7 @@ OUTPUT JSON SCHEMA:
 """
 
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         result = model.generate_content(
             [{"mime_type": mime_type, "data": file_bytes}, prompt],
             generation_config={"temperature": 0},
@@ -557,7 +557,7 @@ async def extract_image_text_full(
         raise HTTPException(status_code=503, detail="Gemini API is not available and PyMuPDF found no embedded text. The file may be a scanned image. Please add a GEMINI_API_KEY to enable AI vision mode.")
 
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         prompt = """
         Please transcribe ALL text and mathematical content from this image/page character by character with maximum fidelity.
 
