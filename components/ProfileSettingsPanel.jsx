@@ -91,31 +91,45 @@ export function ProfileSettingsPanel({ profile, supabase, userId, onSaved, densi
     { id: "notifications", label: t("settings.notificationsTab") },
   ];
 
-  return (
-    <section className={`rounded-3xl border border-gray-200 backdrop-blur-sm bg-gray-50 dark:border-slate-800 dark:bg-[#111827] ${isCompact ? "p-5 md:p-6" : "p-6 md:p-8"}`}>
-      <form onSubmit={handleSave} className="grid gap-0 lg:grid-cols-12 lg:gap-6">
-        {/* Left Sidebar - Tab Navigation */}
-        <div className="lg:col-span-3">
-          <nav className="grid grid-cols-3 gap-2 border-b border-gray-200 pb-4 dark:border-slate-700 sm:grid-cols-3 lg:flex lg:flex-col lg:border-b-0 lg:border-r lg:border-gray-200 lg:pb-0 lg:pr-6 dark:lg:border-slate-700">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`min-w-0 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${
-                  activeTab === tab.id
-                    ? "border-l-2 border-l-[var(--primary)] bg-[var(--accent)] text-gray-900 dark:bg-slate-800 dark:text-white"
-                    : "border-l-2 border-l-transparent text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-700"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        </div>
+  const heroTitle =
+    activeTab === "appearance"
+      ? t("settings.appearanceTab")
+      : activeTab === "notifications"
+        ? t("settings.notificationsTab")
+        : t("settings.profileTitle");
+  const heroDescription =
+    activeTab === "appearance"
+      ? t("settings.appearanceDescription")
+      : activeTab === "notifications"
+        ? t("settings.notificationsDescription")
+        : t("settings.profileDescription");
 
-        {/* Right Content Area */}
-        <div className="lg:col-span-9">
+  return (
+    <section className="space-y-6">
+      <section className={`surface-card ${isCompact ? "rounded-[28px] p-5 md:p-6" : "rounded-[28px] p-6 md:p-7"}`}>
+        <form onSubmit={handleSave} className="grid gap-0 lg:grid-cols-12 lg:gap-6">
+          {/* Left Sidebar - Tab Navigation */}
+          <div className="lg:col-span-3">
+            <nav className="grid grid-cols-3 gap-2 border-b border-gray-200 pb-4 dark:border-slate-700 sm:grid-cols-3 lg:flex lg:flex-col lg:border-b-0 lg:border-r lg:border-gray-200 lg:pb-0 lg:pr-6 dark:lg:border-slate-700">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`min-w-0 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${
+                    activeTab === tab.id
+                      ? "border-l-2 border-l-[var(--primary)] bg-[var(--accent)] text-gray-900 dark:bg-slate-800 dark:text-white"
+                      : "border-l-2 border-l-transparent text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Right Content Area */}
+          <div className="lg:col-span-9">
           {/* Profile Tab */}
           {activeTab === "profile" && (
             <div className="space-y-6">
@@ -309,8 +323,9 @@ export function ProfileSettingsPanel({ profile, supabase, userId, onSaved, densi
           >
             {saving ? t("common.saving") : t("settings.saveWorkspaceSettings")}
           </button>
-        </div>
-      </form>
+          </div>
+        </form>
+      </section>
     </section>
   );
 }

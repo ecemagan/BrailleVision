@@ -202,3 +202,6 @@ GEMINI_API_KEY=your_gemini_key
 ```
 
 Bu dosyayı `.gitignore`'da gizli tut (zaten gizli).
+
+`GEMINI_API_KEY` eklendiğinde Graph Reader otomatik olarak `AI Vision` modunu kullanır.
+Anahtar yoksa Graph Reader kapanmaz; `Offline Basic` moda düşerek OCR + yerel sezgilerle temel grafik açıklaması üretir.

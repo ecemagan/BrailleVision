@@ -7,7 +7,7 @@ export default function GlobalError({ error, reset }) {
 
   return (
     <main className="page-shell flex items-center justify-center">
-      <div className="surface-card w-full max-w-xl rounded-[28px] p-8">
+      <section className="surface-card w-full max-w-xl rounded-[28px] p-8">
         <p className="text-sm font-semibold uppercase tracking-[0.22em] text-rose-700">{t("error.application")}</p>
         <h2 className="font-display mt-3 text-3xl font-bold text-slate-950">{t("error.somethingWrong")}</h2>
         <p className="mt-4 text-slate-600">{error?.message || t("error.unexpected")}</p>
@@ -18,7 +18,7 @@ export default function GlobalError({ error, reset }) {
         >
           {t("error.tryAgain")}
         </button>
-      </div>
+      </section>
     </main>
   );
 }

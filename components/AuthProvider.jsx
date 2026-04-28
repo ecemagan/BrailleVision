@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { getProfileRecord, normalizeProfilePreferences, upsertProfileRecord } from "@/lib/profiles";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+import { isInvalidRefreshTokenError } from "@/lib/userMessages";
 
 const INITIAL_SESSION_TIMEOUT_MS = 3000;
 
@@ -26,6 +27,8 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let ignore = false;
     let subscription;
+    let clearedInvalidSession = false;
+    let autoRefreshStarted = false;
 
     async function syncProfile(client, nextSession) {
       try {
@@ -66,6 +69,50 @@ export function AuthProvider({ children }) {
       }
     }
 
+    async function clearInvalidSession(client, reason) {
+      if (clearedInvalidSession) {
+        return;
+      }
+
+      clearedInvalidSession = true;
+      console.warn(reason || "Clearing an invalid stored Supabase session.");
+
+      try {
+        if (typeof client?.auth?.stopAutoRefresh === "function") {
+          client.auth.stopAutoRefresh();
+          autoRefreshStarted = false;
+        }
+        await client.auth.signOut({ scope: "local" });
+      } catch {
+        // no-op
+      }
+
+      if (!ignore) {
+        setSession(null);
+        setProfile(null);
+        setLoading(false);
+      }
+    }
+
+    function ensureAutoRefresh(client, nextSession) {
+      if (!nextSession) {
+        if (typeof client?.auth?.stopAutoRefresh === "function") {
+          client.auth.stopAutoRefresh();
+        }
+        autoRefreshStarted = false;
+        return;
+      }
+
+      if (autoRefreshStarted) {
+        return;
+      }
+
+      if (typeof client?.auth?.startAutoRefresh === "function") {
+        client.auth.startAutoRefresh();
+        autoRefreshStarted = true;
+      }
+    }
+
     async function connectToSupabase() {
       try {
         // Create one browser client and hydrate the current auth session.
@@ -76,9 +123,20 @@ export function AuthProvider({ children }) {
 
         setSupabase(client);
 
-        const listener = client.auth.onAuthStateChange(async (_event, nextSession) => {
+        const listener = client.auth.onAuthStateChange(async (event, nextSession) => {
           if (ignore) {
             return;
+          }
+
+          if (event === "TOKEN_REFRESH_FAILED") {
+            await clearInvalidSession(client, "Clearing an invalid stored Supabase session after refresh failed.");
+            return;
+          }
+
+          if (event === "SIGNED_OUT") {
+            ensureAutoRefresh(client, null);
+          } else {
+            ensureAutoRefresh(client, nextSession);
           }
 
           setSession(nextSession);
@@ -95,12 +153,18 @@ export function AuthProvider({ children }) {
           }),
         ]);
 
+        if (!initialSessionResult?.timedOut && isInvalidRefreshTokenError(initialSessionResult?.error)) {
+          await clearInvalidSession(client, "Clearing an invalid stored Supabase session.");
+        }
+
         const initialSession = initialSessionResult?.data?.session ?? null;
 
         if (!ignore) {
           setSession(initialSession);
           setLoading(false);
         }
+
+        ensureAutoRefresh(client, initialSession);
 
         if (initialSessionResult?.timedOut) {
           console.warn("Initial session check timed out. The auth UI will stay usable while Supabase continues in the background.");

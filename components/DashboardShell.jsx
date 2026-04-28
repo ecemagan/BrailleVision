@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DocumentsPanel } from "@/components/DocumentsPanel";
+import { GraphInsightPanel } from "@/components/GraphInsightPanel";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { ProfileSettingsPanel } from "@/components/ProfileSettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
@@ -10,6 +11,7 @@ import { UploadPanel } from "@/components/UploadPanel";
 import { useAuth } from "@/components/AuthProvider";
 import { getQuotaStatus } from "@/lib/brailleAssistant";
 import { getSourceLabel } from "@/lib/documents";
+import { stripStoredPageMarkers } from "@/lib/documentReview";
 import { normalizeProfilePreferences, updateProfileRecord } from "@/lib/profiles";
 import { getFriendlyDocumentMessage } from "@/lib/userMessages";
 import { useI18n } from "@/components/I18nProvider";
@@ -17,9 +19,9 @@ import { BackButton } from "@/components/BackButton";
 
 function StatChip({ icon, label, value, helper }) {
   return (
-    <article className="surface-card rounded-2xl p-4 md:p-5">
+    <article className="surface-card rounded-[28px] p-5 md:p-6">
       <div className="flex items-start gap-3">
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-violet-200 bg-violet-50 text-base text-violet-700">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-violet-200 bg-violet-50 text-base text-violet-700">
           {icon}
         </span>
         <div>
@@ -80,7 +82,7 @@ function getWelcomeName(profile, userEmail) {
 
 function EmptyLibraryState({ onStart, t }) {
   return (
-    <div className="glass-card mt-6 rounded-2xl p-6 text-center md:p-8">
+    <div className="surface-card mt-6 rounded-[28px] p-6 text-center md:p-8">
       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-200 bg-violet-50 text-2xl text-violet-700">
         ⠿
       </div>
@@ -99,31 +101,35 @@ function EmptyLibraryState({ onStart, t }) {
   );
 }
 
-function RecentActivityPanel({ documents, latestDocument, onOpenDocuments, onStartConversion, t, locale }) {
+function RecentActivityPanel({ documents, latestDocument, latestBrailleText, onOpenDocuments, onStartConversion, t, locale }) {
   if (!documents.length) {
     return <EmptyLibraryState onStart={onStartConversion} t={t} />;
   }
 
+  const braillePreview = String(latestBrailleText || "");
+
   return (
     <div className="mt-6 space-y-4">
-      <article className="glass-card rounded-2xl p-5">
+      <article className="surface-card rounded-[28px] p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t("dashboard.latestWork")}</p>
         <h3 className="mt-2 text-2xl font-bold text-slate-950">{latestDocument?.file_name}</h3>
         <p className="mt-2 text-sm text-slate-500">{formatOverviewDate(latestDocument.created_at, locale)}</p>
-        <p className="mt-4 break-all text-lg leading-8 text-slate-900">
-          {`${latestDocument.braille_text.slice(0, 180)}${latestDocument.braille_text.length > 180 ? "..." : ""}`}
-        </p>
+        {braillePreview ? (
+          <p className="mt-4 break-all text-lg leading-8 text-slate-900">
+            {`${braillePreview.slice(0, 180)}${braillePreview.length > 180 ? "..." : ""}`}
+          </p>
+        ) : null}
       </article>
 
       <div className="space-y-3">
         {documents.slice(0, 4).map((document) => (
-          <article key={document.id} className="glass-card rounded-2xl p-4">
+          <article key={document.id} className="surface-muted rounded-2xl px-5 py-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-base font-semibold text-slate-900">{document.file_name}</p>
                 <p className="mt-1 text-xs text-slate-500">{formatOverviewDate(document.created_at, locale)}</p>
               </div>
-              <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+              <span className="rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-[11px] font-semibold text-slate-700">
                 {document.source_type}
               </span>
             </div>
@@ -144,7 +150,7 @@ function RecentActivityPanel({ documents, latestDocument, onOpenDocuments, onSta
 
 function SystemInfoPanel({ quotaStatus, preferences, t }) {
   return (
-    <aside className="surface-card rounded-2xl p-5 md:p-6 xl:self-end">
+    <aside className="surface-card rounded-[28px] p-6 md:p-7 xl:self-end">
       <p className="section-kicker">{t("dashboard.systemInfo")}</p>
       <div className="mt-4 flex items-center gap-4">
         <QuotaCircle value={quotaStatus.count} max={quotaStatus.softLimit} />
@@ -190,42 +196,6 @@ function getMostUsedSourceType(documents, t) {
   return topSource ? getSourceLabel(topSource) : t("dashboard.noDataYet");
 }
 
-function getTabMeta(activeTab, latestDocument, documents, favoriteDocuments, mostUsedSource, t) {
-  if (activeTab === "overview") {
-    return {
-      eyebrow: t("nav.overview"),
-      title: t("dashboard.dashboard"),
-      stat: String(documents.length),
-      helper: t("dashboard.savedConversions"),
-    };
-  }
-
-  if (activeTab === "upload") {
-    return {
-      eyebrow: t("dashboard.tabConversionEyebrow"),
-      title: t("dashboard.tabConvertTitle"),
-      stat: latestDocument?.file_name || t("dashboard.noRecentFile"),
-      helper: t("dashboard.latestSavedConversion"),
-    };
-  }
-
-  if (activeTab === "documents") {
-    return {
-      eyebrow: t("dashboard.tabLibraryEyebrow"),
-      title: t("dashboard.tabLibraryTitle"),
-      stat: String(documents.length),
-      helper: t("dashboard.savedConversions"),
-    };
-  }
-
-  return {
-    eyebrow: t("dashboard.tabSettingsEyebrow"),
-    title: t("dashboard.tabSettingsTitle"),
-    stat: t("dashboard.favoritesCount", { count: favoriteDocuments.length }),
-    helper: t("dashboard.topSource", { source: mostUsedSource }),
-  };
-}
-
 export function DashboardShell() {
   const pathname = usePathname();
   const router = useRouter();
@@ -239,10 +209,11 @@ export function DashboardShell() {
   const [notifications, setNotifications] = useState([]);
   const [searchFocusSignal, setSearchFocusSignal] = useState(0);
   const [quickSaveSignal, setQuickSaveSignal] = useState(0);
+  const [latestBrailleText, setLatestBrailleText] = useState("");
   const preferences = normalizeProfilePreferences(profile?.preferences);
   const density = preferences.dashboardDensity;
   const tabParam = searchParams.get("tab");
-  const activeTab = ["overview", "upload", "documents", "settings"].includes(tabParam)
+  const activeTab = ["overview", "upload", "graphs", "documents", "settings"].includes(tabParam)
     ? tabParam
     : preferences.documentView;
 
@@ -277,7 +248,7 @@ export function DashboardShell() {
     const { data, error } = await supabase
       .from("documents")
       .select(
-        "id, file_name, original_text, braille_text, created_at, updated_at, source_type, conversion_mode, tags, is_favorite, is_archived, archived_at",
+        "id, file_name, created_at, updated_at, source_type, conversion_mode, tags, is_favorite, is_archived, archived_at",
       )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
@@ -295,8 +266,28 @@ export function DashboardShell() {
       return;
     }
 
-    setDocuments(data ?? []);
+    const nextDocuments = data ?? [];
+    setDocuments(nextDocuments);
     setLoadingDocuments(false);
+
+    const latestDocumentId = nextDocuments[0]?.id;
+    if (!latestDocumentId) {
+      setLatestBrailleText("");
+      return;
+    }
+
+    const { data: latestData, error: latestError } = await supabase
+      .from("documents")
+      .select("braille_text")
+      .eq("id", latestDocumentId)
+      .single();
+
+    if (latestError) {
+      setLatestBrailleText("");
+      return;
+    }
+
+    setLatestBrailleText(stripStoredPageMarkers(latestData?.braille_text || ""));
   }
 
   useEffect(() => {
@@ -341,27 +332,25 @@ export function DashboardShell() {
   ).length;
   const mostUsedSource = useMemo(() => getMostUsedSourceType(documents, t), [documents, t]);
   const quotaStatus = getQuotaStatus(documents.length);
-  const tabMeta = getTabMeta(activeTab, latestDocument, documents, favoriteDocuments, mostUsedSource, t);
   const welcomeName = getWelcomeName(profile, user?.email);
   const welcomeTemplate = t("dashboard.welcomeBack", { name: "__NAME__" });
   const [welcomePrefix, welcomeSuffix = ""] = welcomeTemplate.split("__NAME__");
   const isWelcomeLoading = loadingAuth || !user || !welcomeName;
   const breadcrumbLabel = useMemo(() => {
-    const localeTag = locale === "tr" ? "tr-TR" : "en-US";
-
     if (pathname?.startsWith("/dashboard")) {
       const labels = {
         overview: t("nav.overview"),
         upload: t("nav.convert"),
+        graphs: t("nav.graphs"),
         documents: t("nav.library"),
         settings: t("nav.settings"),
       };
 
-      return (labels[activeTab] || labels.overview).toLocaleUpperCase(localeTag);
+      return labels[activeTab] || labels.overview;
     }
 
-    return t("nav.overview").toLocaleUpperCase(localeTag);
-  }, [activeTab, locale, pathname, t]);
+    return t("nav.overview");
+  }, [activeTab, pathname, t]);
 
   useEffect(() => {
     if (!quotaStatus.isWarning || quotaWarningRef.current) {
@@ -420,7 +409,7 @@ export function DashboardShell() {
     <main className="page-shell overflow-x-hidden">
       <NotificationCenter notifications={notifications} onDismiss={dismissNotification} />
 
-      <div className="mx-auto flex max-w-7xl flex-col gap-6 lg:flex-row">
+      <div className="mx-auto flex max-w-[96rem] flex-col gap-6 lg:flex-row">
         <Sidebar
           activeTab={activeTab}
           onLogout={handleLogout}
@@ -429,39 +418,40 @@ export function DashboardShell() {
           density={density}
         />
 
-        <section className="relative min-w-0 flex-1 space-y-6 pt-20 md:pt-24 xl:pt-28">
-          <div className="absolute left-0 top-4 flex items-center space-x-4 md:top-6">
+        <section className="min-w-0 flex-1 space-y-6">
+          <header className="flex items-center gap-4">
             <BackButton />
             <p className="section-kicker">{breadcrumbLabel}</p>
-          </div>
+          </header>
 
           {activeTab === "overview" ? (
             <>
-              <div className={`surface-card hero-wash ${density === "compact" ? "rounded-2xl p-5 pr-16 md:p-6 md:pr-20" : "rounded-2xl p-6 pr-16 md:p-8 md:pr-24"}`}>
-                <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-                  <div>
-                    <h1 className="mt-2 flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 text-4xl font-bold tracking-tight text-slate-950 md:max-w-4xl md:flex-nowrap md:text-5xl">
-                      <span className="shrink-0">{welcomePrefix}</span>
-                      {isWelcomeLoading ? (
-                        <span className="inline-block h-8 w-32 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse align-middle mx-1"></span>
-                      ) : (
-                        <span className="min-w-0 break-words">{welcomeName}</span>
-                      )}
-                      <span className="shrink-0">{welcomeSuffix}</span>
-                    </h1>
-                    <p className="mt-3 text-base leading-7 text-slate-600">
-                      {t("dashboard.continue")}
-                    </p>
+              <section className="surface-card overflow-hidden rounded-[28px]">
+                <div className="bg-[linear-gradient(135deg,rgba(139,92,246,0.12),rgba(255,255,255,0.88),rgba(245,243,255,0.92))] px-6 py-6 md:px-8 md:py-7">
+                  <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                    <div className="max-w-4xl">
+                      <p className="section-kicker">{t("nav.overview")}</p>
+                      <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-slate-950 md:text-[3.2rem]">
+                        <span className="shrink-0">{welcomePrefix}</span>
+                        {isWelcomeLoading ? (
+                          <span className="inline-block h-8 w-32 rounded-md bg-gray-200 align-middle mx-1 animate-pulse dark:bg-gray-700" />
+                        ) : (
+                          <span className="min-w-0 break-words">{welcomeName}</span>
+                        )}
+                        <span className="shrink-0">{welcomeSuffix}</span>
+                      </h1>
+                      <p className="mt-3 text-base leading-8 text-slate-700 md:text-lg">{t("dashboard.continue")}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => router.replace("/dashboard?tab=upload")}
+                      className="button-primary rounded-full px-7 py-3.5 text-base font-semibold"
+                    >
+                      {t("dashboard.startConversion")}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => router.replace("/dashboard?tab=upload")}
-                    className="button-primary rounded-full px-7 py-3.5 text-base font-semibold"
-                  >
-                    {t("dashboard.startConversion")}
-                  </button>
                 </div>
-              </div>
+              </section>
 
               <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <StatChip
@@ -491,7 +481,7 @@ export function DashboardShell() {
               </div>
 
               <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <section className="surface-card rounded-2xl p-6 md:p-7">
+                <section className="surface-card rounded-[28px] p-6 md:p-7">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">{t("dashboard.recentActivity")}</p>
@@ -509,7 +499,7 @@ export function DashboardShell() {
                   {loadingDocuments ? (
                     <div className="mt-6 grid gap-3">
                       {[1, 2, 3].map((item) => (
-                        <div key={item} className="glass-card animate-pulse rounded-2xl p-4">
+                        <div key={item} className="surface-muted animate-pulse rounded-2xl p-4">
                           <div className="h-4 w-40 rounded bg-slate-200" />
                           <div className="mt-3 h-3 w-24 rounded bg-slate-100" />
                           <div className="mt-4 h-3 w-full rounded bg-slate-100" />
@@ -520,6 +510,7 @@ export function DashboardShell() {
                     <RecentActivityPanel
                       documents={activeDocuments}
                       latestDocument={latestDocument}
+                      latestBrailleText={latestBrailleText}
                       onOpenDocuments={() => router.replace("/dashboard?tab=documents")}
                       onStartConversion={() => router.replace("/dashboard?tab=upload")}
                       t={t}
@@ -531,21 +522,6 @@ export function DashboardShell() {
                 <SystemInfoPanel quotaStatus={quotaStatus} preferences={preferences} t={t} />
               </div>
             </>
-          ) : null}
-
-          {activeTab !== "overview" ? (
-            <div className="surface-card rounded-2xl p-6 md:p-8">
-              <p className="section-kicker">{tabMeta.eyebrow}</p>
-              <div className="mt-3 flex min-w-0 flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-                <div className="min-w-0 max-w-3xl">
-                  <h1 className="panel-heading">{tabMeta.title}</h1>
-                </div>
-                <div className="panel-subtle rounded-2xl px-5 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{tabMeta.helper}</p>
-                  <p className="mt-2 text-2xl font-bold text-slate-950">{tabMeta.stat}</p>
-                </div>
-              </div>
-            </div>
           ) : null}
 
           {activeTab === "upload" ? (
@@ -560,6 +536,15 @@ export function DashboardShell() {
               density={density}
               quickSaveSignal={quickSaveSignal}
               isActive={activeTab === "upload"}
+            />
+          ) : null}
+
+          {activeTab === "graphs" ? (
+            <GraphInsightPanel
+              onNotify={pushNotification}
+              supabase={supabase}
+              userId={user.id}
+              onSaved={loadDocuments}
             />
           ) : null}
 

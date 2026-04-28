@@ -132,7 +132,7 @@ begin
   ) then
     alter table public.documents
       add constraint documents_source_type_check
-      check (source_type in ('manual', 'pdf', 'image', 'camera', 'word-addin'));
+      check (source_type in ('manual', 'pdf', 'image', 'camera', 'graph', 'word-addin'));
   end if;
 
   if not exists (
@@ -142,7 +142,7 @@ begin
   ) then
     alter table public.documents
       add constraint documents_conversion_mode_check
-      check (conversion_mode in ('text', 'nemeth', 'ocr'));
+      check (conversion_mode in ('text', 'nemeth', 'ocr', 'graph-description'));
   end if;
 end
 $$;

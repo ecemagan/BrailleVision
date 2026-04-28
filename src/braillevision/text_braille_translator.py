@@ -38,7 +38,7 @@ class TextBrailleTranslator:
     PUNCTUATION_MAP: dict[str, str] = {
         # ── Standard punctuation ──────────────────────────────────
         ".": "⠲", ",": "⠂", "?": "⠦", "!": "⠖", ":": "⠒",
-        ";": "⠆", "-": "⠤", "–": "⠤⠤", "—": "⠤⠤⠤",
+        ";": "⠆", "-": "⠤", "−": "⠤", "–": "⠤⠤", "—": "⠤⠤⠤",
         "\"": "⠐⠦", "\u201c": "⠦", "\u201d": "⠴",
         "\u2018": "⠦", "\u2019": "⠴", "'": "⠄",
         "(": "⠐⠣", ")": "⠐⠜", "[": "⠨⠣", "]": "⠨⠜",
@@ -236,4 +236,3 @@ class TextBrailleTranslator:
                     script_mode = None
 
         return "".join(result)
-
