@@ -3,6 +3,10 @@
     bottom: 20px;
     right: 20px;
     width: 320px;
+    height: auto;
+    min-width: 280px;
+    max-width: calc(100vw - 12px);
+    max-height: calc(100vh - 12px);
     background: rgba(25, 28, 45, 0.95);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -29,6 +33,9 @@
     justify-content: space-between;
     align-items: center;
     border-bottom: 1px solid rgba(255,255,255,0.05);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
 }
 
 #braillevision-ext-popup .bv-header strong {
@@ -51,7 +58,8 @@
 
 #braillevision-ext-popup .bv-content {
     padding: 16px;
-    max-height: 400px;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
 }
 
@@ -143,4 +151,45 @@
 #braillevision-ext-popup .bv-error {
     color: #ef4444;
     font-size: 13px;
+}
+
+#braillevision-ext-popup.bv-dragging .bv-header {
+    cursor: grabbing;
+}
+
+#braillevision-ext-popup .bv-resize-handle {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    width: 20px;
+    height: 20px;
+    cursor: nwse-resize;
+    border-radius: 4px;
+    background:
+        linear-gradient(135deg, transparent 0 56%, rgba(255, 255, 255, 0.18) 56% 62%, transparent 62% 100%),
+        linear-gradient(135deg, transparent 0 70%, rgba(139, 92, 246, 0.9) 70% 76%, transparent 76% 100%);
+    touch-action: none;
+}
+
+#braillevision-ext-popup.bv-resizing {
+    user-select: none;
+}
+
+@media (max-width: 720px) {
+    #braillevision-ext-popup {
+        right: 8px;
+        bottom: 8px;
+        width: calc(100vw - 16px);
+        height: auto;
+        min-width: 260px;
+        max-height: calc(100vh - 16px);
+    }
+
+    #braillevision-ext-popup .bv-header {
+        padding: 10px 12px;
+    }
+
+    #braillevision-ext-popup .bv-content {
+        padding: 12px;
+    }
 }

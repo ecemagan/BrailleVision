@@ -45,6 +45,10 @@ from braillevision.lexer import Lexer
 from braillevision.nemeth_translator import NemethTranslator
 from braillevision.parser import Parser
 from braillevision.text_braille_translator import TextBrailleTranslator
+from src.braillevision.tts_engine import synthesize_voice_xtts
+
+# Accept Coqui TTS terms of service automatically in background to avoid EOF blocking
+os.environ["COQUI_TOS_AGREED"] = "1"
 
 # Set Gemini API key (opsiyonel – yoksa metin çevirisi yerel mapping ile çalışır)
 _GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyAd8s0nIilvzk9BVZ296YRhynsvJyQdfNs").strip()
@@ -267,7 +271,7 @@ def _is_text_sufficient(text: str, min_chars: int = 80) -> bool:
 
 def process_file_with_gemini(file_bytes: bytes, mime_type: str) -> list[dict]:
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         prompt = """
         Aşağıdaki görsel/belgeden matematiksel işlemleri/denklemleri çıkar.
         Desteklenen işlemler şunlardır: toplama, çıkarma, çarpma, bölme, üslü ifadeler (x^2),
@@ -278,6 +282,18 @@ def process_file_with_gemini(file_bytes: bytes, mime_type: str) -> list[dict]:
         pi, e, sonsuz (inf), max, min, gcd, lcm, mod,
         Kümeler ve Mantık: birleşim (∪), kesişim (∩), boş küme (∅), elemanıdır (∈), elemanı değildir (∉), alt küme (⊂), kapsar (⊃), denktir (≡), ancak ve ancak (⇔, ⇐, ⇒), fark (\\).
         
+        KRİTİK - TÜRKÇE KARAKTER DÜZELTMESİ (LaTeX PDF Encoding Sorunu):
+        Bu belge büyük ihtimalle LaTeX ile oluşturulmuş bir PDF'dir. Bu tür PDF'lerde Türkçe
+        karakterler bozuk görünür. Aşağıdaki ZORUNLU dönüşüm tablosunu uygula:
+        - "˘g" veya "g˘" veya "¨g" → "ğ"  |  "G˘" veya "˘G" → "Ğ"
+        - "¨u" veya "u¨" veya "˙u" → "ü"  |  "¨U" veya "U¨" → "Ü"
+        - "¸s" veya "s¸" → "ş"             |  "¸S" veya "S¸" → "Ş"
+        - "¨o" veya "o¨" → "ö"             |  "¨O" veya "O¨" → "Ö"
+        - "¸c" veya "c¸" → "ç"             |  "¸C" veya "C¸" → "Ç"
+        - Tek başına bırakılmış "ı" (noktalı i değil, noktasız i) yerine bağlama göre "ı" veya "i" yaz.
+        - "'" (tek tırnak) ile karışan "i" harflerini bağlama göre düzelt.
+        Örnek broken text: "K¨okler" → "Kökler", "b¨oyle" → "böyle", "tanımlanmı¸s" → "tanımlanmış"
+        
         ÖNEMLİ: Kümelerde "Tümleyen" (complement) sembolü görüyorsan bunu her zaman ÜSLÜ İFADE olarak formatla! (Örn: A'nın tümleyeni için A^c veya A^' kullan, "A c" şeklinde boşluk bırakma). Eşdeğerliklerde çift yönlü ok için ⇔ kullan (⇐⇒ kullanma).
         ÖNEMLİ - İNTEGRAL VE TÜREV FORMATLARI: Görselde integral veya türev görüyorsan:
         - Belirsiz integral için: int(x^2, x)  [int(ifade, değişken)]
@@ -287,9 +303,9 @@ def process_file_with_gemini(file_bytes: bytes, mime_type: str) -> list[dict]:
         - Prime gösterimi için: f'(x) veya f''(x)
         Örnek: "∫_0^1 x² dx" → int(x^2, x, 0, 1) ve "d/dx(sin x)" → diff(sin(x), x)
         
-        1. Eğer görselde OCR hataları (Örn: i ve ' (tek tırnak) karışması, l ve 1 karışması, f ve integral işareti vb.) varsa bağlama göre DÜZELT. En sık yapılan "i" yerine "'" (tek tırnak) kullanımını kelimenin anlamına göre i/ı olarak mutlaka düzelt (Örn: "wr't'ng" -> "writing", "opportun't'es" -> "opportunities").
+        1. Eğer görselde OCR hataları varsa bağlama göre DÜZELT.
         2. Her denklem için programatik format kullan: örn. sqrt(x), log(x), log2(x), ln(x), abs(x), x^2, x_n.
-        3. Çıkarılan her bir denklem için öğrencilerin dinlerken anlayabileceği şekilde **değerleri ve sayıları bizzat telaffuz ederek** açıklayıcı bir Türkçe sesli okuma metni yaz.
+        3. Çıkarılan her bir denklem için öğrencilerin dinlerken anlayabileceği şekilde açıklayıcı bir Türkçe sesli okuma metni yaz.
         4. Çıktıyı kesinlikle JSON formatında döndür. Markdown etiketlerini (```json ... ```) kullanma, direkt JSON dizisini (array) ver.
         Format şu şekilde olmalı:
         [
@@ -609,7 +625,7 @@ def process_text_raw_with_gemini(text_input: str) -> list[dict]:
     if not _GEMINI_AVAILABLE:
         return []
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         prompt = f"""
         Aşağıdaki metinden matematiksel işlemleri/denklemleri çıkar.
         Desteklenen işlemler: toplama, çıkarma, çarpma, bölme, üslü ifadeler (x^2),
@@ -665,7 +681,9 @@ async def process_text(data: TextInput):
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
 
     # Normalize mathematical italic letters and diacritics into standard characters
-    normalized_text = unicodedata.normalize('NFKC', data.text)
+    # Fix LaTeX encoding issues (ƒ→f, broken Turkish chars) then NFKC normalize
+    fixed_text = fix_latex_encoding(data.text)
+    normalized_text = unicodedata.normalize('NFKC', fixed_text)
 
     # 1. Gemini ile çıkarmayı dene (API key varsa çalışır, yoksa boş [] döner)
     extracted_items = process_text_raw_with_gemini(normalized_text)
@@ -673,7 +691,8 @@ async def process_text(data: TextInput):
     # 2. Eğer API kapalıysa veya bir şey çıkaramadıysa, manuel fallback yap:
     if not extracted_items:
         expressions = [line.strip() for line in normalized_text.split('\n') if line.strip()]
-        extracted_items = [{"math": exp, "explanation": "Doğrudan çeviri (API Kapalı)"} for exp in expressions]
+        error_info = "Doğrudan çeviri (API Pasif)" if not _GEMINI_AVAILABLE else "API Hatası: Lütfen anahtarınızı kontrol edin."
+        extracted_items = [{"math": exp, "explanation": error_info} for exp in expressions]
 
     results = []
     for item in extracted_items:
@@ -696,7 +715,9 @@ async def translate_braille_text(data: TextBrailleInput):
     if not data.text or not data.text.strip():
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
     
-    normalized_text = unicodedata.normalize('NFKC', data.text)
+    # Fix LaTeX encoding issues (ƒ→f, broken Turkish chars) then NFKC normalize
+    fixed_text = fix_latex_encoding(data.text)
+    normalized_text = unicodedata.normalize('NFKC', fixed_text)
     
     translator = TextBrailleTranslator()
     braille_output = translator.translate(normalized_text)
@@ -705,6 +726,32 @@ async def translate_braille_text(data: TextBrailleInput):
         "original": data.text,
         "braille": braille_output
     })
+
+class TTSRequest(BaseModel):
+    text: str
+
+@app.post("/api/tts")
+async def process_tts(data: TTSRequest):
+    """
+    Kullanıcı sesini temel alan Coqui XTTS Voice Cloning (Yapay Zeka Seslendirme) 
+    kullanarak metni okur ve .wav formatında ses döndürür.
+    """
+    if not data.text or not data.text.strip():
+        raise HTTPException(status_code=400, detail="Okunacak metin boş olamaz.")
+        
+    reference_audio = PROJECT_ROOT / "voices" / "beyzases.wav"
+    
+    # Eğer referans ses valid bir wav dosyası değilse (henüz ayarlanmadıysa), hata veriyoruz:
+    if not reference_audio.exists() or reference_audio.stat().st_size < 100:
+        raise HTTPException(status_code=400, detail="'beyzases.wav' isimli referans ses dosyası 'voices/' dizininde bulunamadı veya henüz geçerli bir ses kaydedilmedi. Lütfen sisteme kendi sesinizi yükleyin (bitirme projesi demo sesi).")
+        
+    try:
+        wav_bytes = synthesize_voice_xtts(data.text, str(reference_audio))
+        # Return as downloadable/playable WAV stream
+        return Response(content=wav_bytes, media_type="audio/wav")
+    except Exception as e:
+        print(f"TTS Engine Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ses sentezleme başarısız oldu: {str(e)}")
 
 
 if __name__ == "__main__":

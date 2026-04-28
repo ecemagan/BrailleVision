@@ -155,6 +155,87 @@ export function DocumentsPanel({
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [busyActionKey, setBusyActionKey] = useState("");
+  const [selectedVoice, setSelectedVoice] = useState("woman");
+  const audioRef = useRef(null);
+
+  function handleStopTTS() {
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+  }
+  
+  async function handleTTS(text, e) {
+    if (!text) return;
+    const btn = e.currentTarget;
+    const originalText = btn.innerHTML;
+
+    if (selectedVoice === "beyza") {
+      btn.disabled = true;
+      btn.innerHTML = '⏳ AI Sentezliyor...';
+
+      try {
+        const response = await fetch("http://localhost:8000/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+        if (!response.ok) throw new Error("Voice Generation Failed");
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          if (audioRef.current === audio) audioRef.current = null;
+        };
+        await audio.play();
+      } catch (err) {
+        alert("AI Ses Hatası: " + err.message);
+      } finally {
+        if (btn) {
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+        }
+      }
+    } else {
+      // Browser Standard TTS
+      if (!window.speechSynthesis) {
+        alert("Tarayıcınız ses sentezlemeyi desteklemiyor.");
+        return;
+      }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      
+      const voices = window.speechSynthesis.getVoices();
+      // Try to find a Turkish voice
+      const trVoices = voices.filter(v => v.lang.startsWith('tr'));
+      
+      if (selectedVoice === "man") {
+        // Find a male-sounding voice if possible. 
+        // TR Male names: Tolga, Cem, Sinan. Also check for 'male' label.
+        utterance.voice = trVoices.find(v => 
+          v.name.toLowerCase().includes('cem') || 
+          v.name.toLowerCase().includes('sinan') || 
+          v.name.toLowerCase().includes('tolga') || 
+          v.name.toLowerCase().includes('male')
+        ) || trVoices[0];
+      } else {
+        // Woman (Default: Yelda etc.)
+        utterance.voice = trVoices.find(v => 
+          v.name.toLowerCase().includes('yelda') || 
+          v.name.toLowerCase().includes('female')
+        ) || trVoices[0];
+      }
+      
+      utterance.lang = "tr-TR";
+      window.speechSynthesis.speak(utterance);
+    }
+  }
   const [selectedExportFormat, setSelectedExportFormat] = useState("txt");
   const deferredSearch = useDeferredValue(searchValue);
   const filterOptions = [

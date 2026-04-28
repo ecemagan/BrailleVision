@@ -180,7 +180,7 @@ class Parser:
 
         if self._match_operator("("):
             inner = self._parse_comma_sequence()
-            self._consume_operator(")", "Expected ')' after expression.")
+            self._consume_operator(")", "İfadeden sonra ')' parantezi bekleniyor.")
             return self._mark_explicit_grouping(inner)
 
         if self._match_operator("∫"):
@@ -188,12 +188,12 @@ class Parser:
         if self._match_operator("∂"):
             return ConstantNode("∂")
 
-        raise ValueError(f"Expected number, function, variable, or parenthesized expression. Found token: {self._peek()}")
+        raise ValueError(f"Eksik veya geçersiz matematiksel sembol. Beklenen: sayı, fonksiyon, değişken veya parantez. Alınan: '{self._peek().value}' (İletilen metin sadece düz yazı ise, lütfen 'Translate text' seçeneğini kullanın)")
 
     def _parse_function_argument(self) -> ExpressionNode:
         if self._match_operator("("):
             inner = self._parse_comma_sequence()
-            self._consume_operator(")", "Expected ')' after function argument.")
+            self._consume_operator(")", "Fonksiyon argümanından sonra ')' parantezi bekleniyor.")
             return self._mark_explicit_grouping(inner)
 
         return self._parse_unary()
@@ -271,12 +271,14 @@ class Parser:
     def _consume(self, token_type: TokenType, message: str) -> Token:
         if self._check(token_type):
             return self._advance()
-        raise ValueError(f"{message} Found token: {self._peek()}")
+        val = self._peek().value if self._peek().value else "Cümlenin/İfadenin sonu (EOF)"
+        raise ValueError(f"{message} Bulunan: {val}")
 
     def _consume_operator(self, operator: str, message: str) -> Token:
         if self._check_operator(operator):
             return self._advance()
-        raise ValueError(f"{message} Found token: {self._peek()}")
+        val = self._peek().value if self._peek().value else "Cümlenin/İfadenin sonu (EOF)"
+        raise ValueError(f"{message} Bulunan: {val}")
 
     def _check(self, token_type: TokenType) -> bool:
         return self._peek().token_type is token_type

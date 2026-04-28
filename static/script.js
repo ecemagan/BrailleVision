@@ -288,14 +288,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-window.speakText = function(text) {
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const msg = new SpeechSynthesisUtterance(text);
-        msg.lang = 'en-US';
-        window.speechSynthesis.speak(msg);
-    } else {
-        alert("Your browser does not support speech synthesis.");
+window.speakText = async function(text) {
+    try {
+        const btn = document.activeElement;
+        const oldText = btn && btn.tagName === 'BUTTON' ? btn.textContent : '';
+        if (btn && btn.tagName === 'BUTTON') btn.textContent = '⏳ ...';
+        
+        const response = await fetch("http://localhost:8000/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: text })
+        });
+        
+        if (!response.ok) throw new Error("TTS fail");
+        
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => URL.revokeObjectURL(url);
+        audio.play();
+        
+        if (btn && btn.tagName === 'BUTTON') btn.textContent = oldText;
+    } catch (e) {
+        // Fallback
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const msg = new SpeechSynthesisUtterance(text);
+            msg.lang = 'tr-TR';
+            window.speechSynthesis.speak(msg);
+        } else {
+            alert("Your browser does not support speech synthesis.");
+        }
     }
 };
 
