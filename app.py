@@ -20,7 +20,13 @@ from braillevision.lexer import Lexer
 from braillevision.nemeth_translator import NemethTranslator
 from braillevision.parser import Parser
 from braillevision.text_braille_translator import TextBrailleTranslator
-from src.braillevision.tts_engine import synthesize_voice_xtts
+try:
+    from src.braillevision.tts_engine import synthesize_voice_xtts as _synthesize_voice_xtts
+    _tts_available = True
+except (ImportError, ModuleNotFoundError) as _tts_import_err:
+    print(f"[WARN] TTS engine could not be loaded: {_tts_import_err}. /api/tts endpoint will be disabled.")
+    _tts_available = False
+    _synthesize_voice_xtts = None
 
 # Accept Coqui TTS terms of service automatically in background to avoid EOF blocking
 os.environ["COQUI_TOS_AGREED"] = "1"
@@ -477,6 +483,12 @@ async def process_tts(data: TTSRequest):
     Kullanıcı sesini temel alan Coqui XTTS Voice Cloning (Yapay Zeka Seslendirme) 
     kullanarak metni okur ve .wav formatında ses döndürür.
     """
+    if not _tts_available:
+        raise HTTPException(
+            status_code=503,
+            detail="TTS motoru yüklenemedi. 'torch' ve 'TTS' kütüphanelerinin kurulu olduğundan emin olun: pip install torch TTS"
+        )
+
     if not data.text or not data.text.strip():
         raise HTTPException(status_code=400, detail="Okunacak metin boş olamaz.")
         
@@ -487,7 +499,7 @@ async def process_tts(data: TTSRequest):
         raise HTTPException(status_code=400, detail="'beyzases.wav' isimli referans ses dosyası 'voices/' dizininde bulunamadı veya henüz geçerli bir ses kaydedilmedi. Lütfen sisteme kendi sesinizi yükleyin (bitirme projesi demo sesi).")
         
     try:
-        wav_bytes = synthesize_voice_xtts(data.text, str(reference_audio))
+        wav_bytes = _synthesize_voice_xtts(data.text, str(reference_audio))
         # Return as downloadable/playable WAV stream
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:
