@@ -88,6 +88,34 @@ def fix_latex_encoding(text: str) -> str:
     for old, new in {'\U0001d453': 'f', '\u0192': 'f', '\u0198': 'K'}.items():
         text = text.replace(old, new)
 
+    # ── OCR / copy-paste math symbol fixes ─────────────────────────────────
+    # ¨ (U+00A8 diaeresis) is commonly OCR'd instead of ∩ (intersection)
+    text = text.replace('\u00a8', '\u2229')   # ¨ → ∩
+    # ƒ(x) style italic f already handled above; also handle ∞ written as "q"
+    # when followed by ) or , — a very common OCR artefact in calculus texts
+    import re as _re
+    text = _re.sub(r'\bq\)', '\u221e)', text)   # q) → ∞)
+    text = _re.sub(r'\bq,', '\u221e,', text)    # q, → ∞,
+    text = _re.sub(r'\(-q\b', '(-\u221e', text) # (-q → (-∞
+    text = _re.sub(r'\bq\b', '\u221e', text)     # standalone q → ∞ (last resort)
+    # Curly/typographic quotes → standard ASCII
+    text = text.replace('\u2018', "'").replace('\u2019', "'")
+    text = text.replace('\u201c', '"').replace('\u201d', '"')
+    # ─ (em dash) and – (en dash) → minus
+    text = text.replace('\u2013', '-').replace('\u2014', '-')
+    # × (multiplication sign) → *
+    text = text.replace('\u00d7', '*')
+    # ÷ → /
+    text = text.replace('\u00f7', '/')
+    # Combining diacritical marks that slip through → remove
+    import unicodedata as _ud2
+    text = ''.join(
+        ch for ch in text
+        if _ud2.category(ch) != 'Mn'   # Mn = Non-spacing mark (combining accents)
+        or ch in {'\u0308', '\u0327', '\u0306', '\u02d8', '\u00b8'}  # keep our known diacritics for Turkish fix below
+    )
+
+
     # \u2500\u2500 LaTeX diacritic decomposition \u2192 composed Turkish chars \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     replacements = [
         # --- \u011f / \u011e ---
@@ -697,12 +725,15 @@ async def process_text(data: TextInput):
     results = []
     for item in extracted_items:
         exp = item.get("math", "")
-        # translate_math_to_nemeth, Lexer -> Parser -> NemethTranslator zincirini API'siz (%100 yerel) kullanır
+        # translate_math_to_nemeth, Lexer → Parser → NemethTranslator zincirini API'siz (%100 yerel) kullanır
         res = translate_math_to_nemeth(exp)
-        if res.get("braille") or res.get("error"):
+        # Only include results that produced actual Braille output.
+        # Results with only an error (no braille) are silently dropped —
+        # this lets the auto-translate fallback detect "no math found" cleanly.
+        if res.get("braille"):
             res["explanation"] = item.get("explanation", "")
             results.append(res)
-            
+
     return JSONResponse(content={"results": results})
 
 

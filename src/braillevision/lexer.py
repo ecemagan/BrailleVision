@@ -85,7 +85,11 @@ class Lexer:
                 self._advance()
                 continue
 
-            raise ValueError(f"Invalid character at index {self.position}: '{current}'")
+            # Unknown / unsupported character — skip silently.
+            # This makes the parser resilient to OCR artifacts, diacritics,
+            # and any special symbols that don't belong to the math grammar.
+            self._advance()
+            continue
 
         tokens.append(Token(TokenType.EOF, ""))
         return tokens

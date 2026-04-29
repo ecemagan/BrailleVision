@@ -148,6 +148,25 @@
     border-color: #e2e8f0;
 }
 
+#braillevision-ext-popup .bv-mode-chip {
+    display: inline-block;
+    background: rgba(139, 92, 246, 0.18);
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    color: #a78bfa;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin-bottom: 12px;
+    letter-spacing: 0.02em;
+}
+
+#braillevision-ext-popup .bv-mode-chip.bv-mode-text {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.35);
+    color: #86efac;
+}
+
 #braillevision-ext-popup .bv-error {
     color: #ef4444;
     font-size: 13px;

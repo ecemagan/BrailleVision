@@ -3,6 +3,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         showMathPopup(request.text);
     } else if (request.action === "translateAlpha") {
         showAlphaPopup(request.text);
+    } else if (request.action === "translateAuto") {
+        showAutoPopup(request.text);
     }
 });
 
@@ -199,6 +201,99 @@ function enablePopupInteractions(popup) {
 
     resizeHandle.addEventListener("pointerup", endResize);
     resizeHandle.addEventListener("pointercancel", endResize);
+}
+
+/* ─── Auto-detect: Math → Nemeth veya Text → Braille ───────────────────── */
+async function showAutoPopup(text) {
+    const existing = document.getElementById("braillevision-ext-popup");
+    if (existing) existing.remove();
+
+    const popup = createBasePopup("BrailleVision – Otomatik Çeviri");
+    document.body.appendChild(popup);
+    document.getElementById("bv-close-btn").addEventListener("click", () => popup.remove());
+
+    try {
+        const response = await requestBackend("bvApiAutoTranslate", text);
+        const contentDiv = popup.querySelector('.bv-content');
+        contentDiv.innerHTML = '';
+
+        const results = response.results || (response.data && response.data.results);
+        const hasMathResults = results && results.length > 0 && !results.every(r => r.error);
+
+        if (response.mode === "math" && hasMathResults) {
+            const modeChip = document.createElement('div');
+            modeChip.className = 'bv-mode-chip';
+            modeChip.textContent = '✓ Matematik modu (Nemeth Braille)';
+            contentDiv.appendChild(modeChip);
+
+            results.forEach((res, index) => {
+                const item = document.createElement('div');
+                item.className = 'bv-result-item';
+                if (res.error) {
+                    item.innerHTML = `<div class="bv-error">Hata: ${escapeHtml(res.error)}</div>`;
+                } else {
+                    item.innerHTML = `
+                        <div class="bv-label">Matematiksel ifade:</div>
+                        <div class="bv-math">${escapeHtml(res.expression)}</div>
+                        ${res.explanation ? `
+                          <div class="bv-label" style="display:flex;justify-content:space-between;align-items:center;">
+                              AI açıklaması <button class="bv-tts-btn" id="auto-tts-${index}">🔊 Dinle</button>
+                          </div>
+                          <div class="bv-explanation">${escapeHtml(res.explanation)}</div>
+                        ` : ''}
+                        <div class="bv-label">Nemeth Braille:</div>
+                        <div class="bv-braille">${res.braille}</div>
+                        <div style="text-align:right;margin-top:8px;">
+                            <button class="bv-export-btn" id="auto-exp-${index}">📥 .brf indir</button>
+                        </div>
+                    `;
+                }
+                contentDiv.appendChild(item);
+
+                if (!res.error) {
+                    const ttsBtn = document.getElementById(`auto-tts-${index}`);
+                    if (ttsBtn) ttsBtn.addEventListener('click', () => {
+                        window.speechSynthesis.cancel();
+                        const s = new SpeechSynthesisUtterance(res.explanation);
+                        s.lang = 'tr-TR';
+                        window.speechSynthesis.speak(s);
+                    });
+                    const expBtn = document.getElementById(`auto-exp-${index}`);
+                    if (expBtn) expBtn.addEventListener('click', () => downloadBRF(res.braille, 'BrailleVision_Math.brf'));
+                }
+            });
+        } else {
+            // Düz metin modu
+            const textData = response.data || response;
+            const modeChip = document.createElement('div');
+            modeChip.className = 'bv-mode-chip bv-mode-text';
+            modeChip.textContent = '✓ Metin modu (Braille Alfabesi)';
+            contentDiv.appendChild(modeChip);
+            renderTextResult(contentDiv, textData);
+        }
+    } catch (err) {
+        const errorText = (err && err.message) ? err.message : "Bilinmeyen hata";
+        popup.querySelector('.bv-content').innerHTML =
+            `<div class="bv-error">Çeviri tamamlanamadı. ${escapeHtml(errorText)}<br>BrailleVision sunucusunun (http://localhost:8000) çalıştığından emin olun.</div>`;
+    }
+}
+
+function renderTextResult(container, data) {
+    const original = data.original || data.text || '';
+    const braille  = data.braille  || '';
+    const frag = document.createElement('div');
+    frag.innerHTML = `
+        <div class="bv-label">Orijinal metin:</div>
+        <div class="bv-math">${escapeHtml(original)}</div>
+        <div class="bv-label">Braille çevirisi:</div>
+        <div class="bv-braille">${braille}</div>
+        <div style="text-align:right;margin-top:8px;">
+            <button class="bv-export-btn" id="auto-text-export">📥 .brf indir</button>
+        </div>
+    `;
+    container.appendChild(frag);
+    const expBtn = container.querySelector('#auto-text-export');
+    if (expBtn) expBtn.addEventListener('click', () => downloadBRF(braille, 'BrailleVision_Text.brf'));
 }
 
 /* ─── Matematik → Nemeth Braille ─────────────────────────────────────── */
